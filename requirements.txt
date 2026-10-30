@@ -1,0 +1,8 @@
+kiteconnect>=5.0.0
+dhanhq>=2.0.0
+yfinance>=0.2.40
+python-dotenv>=1.0.1
+pandas>=2.2.0
+numpy>=1.26.0
+requests>=2.31.0
+openai>=1.30.0

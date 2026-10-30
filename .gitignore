@@ -1,0 +1,8 @@
+.env
+token.json
+*.log
+__pycache__/
+.venv/
+.DS_Store
+signals.db
+dashboard.html

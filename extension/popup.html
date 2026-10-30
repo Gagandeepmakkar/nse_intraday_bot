@@ -1,0 +1,41 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="hd">
+    <span class="title">Live Confirm</span>
+    <span id="status" class="status">loading…</span>
+  </div>
+
+  <div id="tabs" class="tabs"></div>
+
+  <div id="manual" class="manual hidden">
+    No picks from the bot. Type two NSE symbols (comma-separated):
+    <input id="manualInput" placeholder="LAURUSLABS, DALBHARAT">
+    <button id="manualGo">Go</button>
+  </div>
+
+  <div id="verdict" class="verdict">
+    <span id="action" class="action">—</span>
+    <span id="confidence" class="confidence"></span>
+    <span id="side" class="side"></span>
+  </div>
+
+  <div id="levels" class="levels"></div>
+  <div id="chart" class="chart"></div>
+  <div id="votes" class="votes"></div>
+
+  <div class="foot">
+    Live confirmation only — multiple standard algorithms on 1-min candles. NOT advice.
+    Execute manually in your broker. Data is lightly delayed (free feed).
+  </div>
+
+  <script src="lib/lwc.js"></script>
+  <script src="algos.js"></script>
+  <script src="data.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

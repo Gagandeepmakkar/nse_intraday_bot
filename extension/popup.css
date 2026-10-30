@@ -1,0 +1,37 @@
+* { box-sizing: border-box; }
+body {
+  width: 420px; margin: 0; padding: 10px;
+  font: 13px/1.45 -apple-system, Segoe UI, Roboto, sans-serif;
+  background: #0f1419; color: #e6e9ee;
+}
+.hd { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.title { font-weight: 700; font-size: 15px; }
+.status { margin-left: auto; font-size: 11px; color: #9aa4b2; }
+.tabs { display: flex; gap: 6px; margin-bottom: 8px; }
+.tab {
+  flex: 1; text-align: center; padding: 6px 8px; border-radius: 8px; cursor: pointer;
+  background: #1b232e; border: 1px solid #2a3542; font-weight: 600; font-size: 12px;
+}
+.tab.active { border-color: #38bdf8; color: #38bdf8; }
+.tab .sub { display: block; font-size: 10px; color: #8a94a2; font-weight: 400; }
+.manual { background: #161b22; border: 1px solid #273040; border-radius: 8px; padding: 10px; margin-bottom: 8px; font-size: 12px; }
+.manual input { width: 100%; margin: 6px 0; padding: 6px; background: #0f1419; border: 1px solid #2a3542; color: #e6e9ee; border-radius: 6px; }
+.manual button { padding: 5px 12px; background: #38bdf8; border: 0; border-radius: 6px; color: #06222e; font-weight: 700; cursor: pointer; }
+.verdict { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; background: #161b22; border: 1px solid #273040; margin-bottom: 8px; }
+.action { font-size: 22px; font-weight: 800; }
+.action.BUY { color: #4ade80; } .action.SELL { color: #f87171; }
+.action.HOLD, .action.WAIT { color: #9aa4b2; }
+.confidence { font-size: 12px; color: #9aa4b2; }
+.side { margin-left: auto; font-size: 11px; color: #8a94a2; }
+.levels { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 8px; }
+.lv { background: #0f1419; border: 1px solid #232c38; border-radius: 6px; padding: 5px 7px; }
+.lv .k { font-size: 10px; color: #8a94a2; text-transform: uppercase; }
+.lv .v { font-size: 13px; font-weight: 600; }
+.chart { height: 200px; border: 1px solid #232c38; border-radius: 8px; overflow: hidden; margin-bottom: 8px; }
+.votes { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.vote { font-size: 11px; padding: 4px 8px; border-radius: 999px; border: 1px solid #2a3542; background: #1b232e; }
+.vote.BUY { color: #4ade80; border-color: #1c3a28; }
+.vote.SELL { color: #f87171; border-color: #3a1c1c; }
+.vote.NEUTRAL { color: #9aa4b2; }
+.foot { font-size: 10.5px; color: #7a8494; border-top: 1px solid #232c38; padding-top: 8px; }
+.hidden { display: none; }

@@ -1,0 +1,2 @@
+symbol,published_at,source,headline,url
+# Add headlines from a permitted source; keep one headline per row. Leave empty if unused.

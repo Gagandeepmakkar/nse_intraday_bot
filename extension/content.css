@@ -1,0 +1,34 @@
+#nse-live-confirm {
+  position: fixed; top: 90px; right: 20px; z-index: 2147483647;
+  width: 330px; background: #0f1419; color: #e6e9ee;
+  border: 1px solid #2a3542; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,.5);
+  font: 13px/1.45 -apple-system, Segoe UI, Roboto, sans-serif; overflow: hidden;
+}
+#nse-live-confirm * { box-sizing: border-box; }
+#nlc-head { display: flex; align-items: center; gap: 8px; padding: 9px 11px; cursor: move; background: #161b22; border-bottom: 1px solid #232c38; }
+#nlc-head .t { font-weight: 700; font-size: 13px; }
+#nlc-head .s { margin-left: auto; font-size: 10px; color: #8a94a2; }
+#nlc-min { cursor: pointer; color: #9aa4b2; font-weight: 700; padding: 0 4px; }
+#nlc-body { padding: 11px; }
+.nlc-row { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
+.nlc-row input { flex: 1; padding: 6px 8px; background: #161b22; border: 1px solid #2a3542; color: #e6e9ee; border-radius: 6px; font-size: 12px; }
+.nlc-row button { padding: 6px 10px; background: #38bdf8; border: 0; border-radius: 6px; color: #06222e; font-weight: 700; cursor: pointer; }
+#nlc-verdict { display: flex; align-items: center; gap: 10px; padding: 9px 11px; border-radius: 9px; background: #161b22; border: 1px solid #273040; margin-bottom: 8px; }
+#nlc-action { font-size: 21px; font-weight: 800; }
+#nlc-action.BUY { color: #4ade80; } #nlc-action.SELL { color: #f87171; }
+#nlc-action.HOLD, #nlc-action.WAIT { color: #9aa4b2; }
+#nlc-conf { font-size: 11px; color: #9aa4b2; }
+#nlc-botside { margin-left: auto; font-size: 10px; color: #38bdf8; }
+#nlc-levels { display: grid; grid-template-columns: repeat(4,1fr); gap: 5px; margin-bottom: 8px; }
+.nlc-lv { background: #161b22; border: 1px solid #232c38; border-radius: 6px; padding: 4px 6px; text-align: center; }
+.nlc-lv .k { font-size: 9px; color: #8a94a2; text-transform: uppercase; }
+.nlc-lv .v { font-size: 12px; font-weight: 600; }
+#nlc-chart { height: 170px; border: 1px solid #232c38; border-radius: 8px; overflow: hidden; margin-bottom: 8px; }
+#nlc-votes { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
+.nlc-vote { font-size: 10px; padding: 3px 7px; border-radius: 999px; border: 1px solid #2a3542; background: #161b22; }
+.nlc-vote.BUY { color: #4ade80; } .nlc-vote.SELL { color: #f87171; } .nlc-vote.NEUTRAL { color: #9aa4b2; }
+#nlc-foot { font-size: 9.5px; color: #7a8494; }
+#nse-live-confirm.min #nlc-body { display: none; }
+
+.nlc-ev { font-size: 11px; color: #c3cad6; background:#161b22; border:1px solid #232c38; border-radius:6px; padding:5px 7px; margin-bottom:5px; }
+.nlc-ev b { color:#e6e9ee; }
