@@ -153,9 +153,22 @@ def analyze(symbol, side_hint=""):
             levels = {"entry": price, "stop": price + 1.2 * atr,
                       "target1": price - 1.5 * atr, "target2": price - 2.5 * atr}
 
+    # Time Machine: when there's a tradeable setup, replay the rest of the session
+    # 10,000x + the real history for honest target-first/stop-first odds on T1.
+    tm = None
+    if levels:
+        try:
+            import timemachine
+            r = timemachine.timemachine(sym, side, levels["entry"], levels["stop"], levels["target1"])
+            if "montecarlo" in r:
+                tm = {"mc": r["montecarlo"], "history": r["history"], "verdict": r["verdict"]}
+        except Exception:
+            tm = None
+
     return {
         "symbol": sym, "side": side, "action": action, "confidence": confidence,
         "price": round(price, 2), "levels": {k: round(v, 2) for k, v in levels.items()} if levels else None,
+        "timemachine": tm,
         "evidence": {
             "intraday_trend_5m": tf5, "daily_trend": tfd, "rsi": round(rsi, 1),
             "vwap": round(vwap, 2), "atr": round(atr, 2),

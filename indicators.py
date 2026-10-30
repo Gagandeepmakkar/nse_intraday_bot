@@ -108,6 +108,60 @@ def central_pivot_range(hlc):
     }
 
 
+def rsi(closes, period=14):
+    """Wilder RSI over a list/Series of closes. None if too few; 100 if no losses.
+    Seeds with the simple mean of the first `period`, then Wilder-smooths."""
+    c = list(closes)
+    if len(c) <= period:
+        return None
+    gains = [max(c[i] - c[i - 1], 0.0) for i in range(1, len(c))]
+    losses = [max(c[i - 1] - c[i], 0.0) for i in range(1, len(c))]
+    ag = sum(gains[:period]) / period
+    al = sum(losses[:period]) / period
+    for i in range(period, len(gains)):
+        ag = (ag * (period - 1) + gains[i]) / period
+        al = (al * (period - 1) + losses[i]) / period
+    if al == 0:
+        return 100.0
+    return float(100 - 100 / (1 + ag / al))
+
+
+def daily_setups(closes):
+    """Swing setups over a list of DAILY closes (oldest first, >=30 bars). Returns
+    the list of matched tags (a symbol can match several). Ported from the
+    day-trader-skill scanner. Needs daily closes only — no intraday, no OHLC.
+
+      breakout_20d    last close > every one of the prior 20 closes
+      reclaim_ma20    prev close < MA20(prev), last close > MA20 (cross back up)
+      bull_flag       >10% run over the 10 sessions before the last 5, then the
+                      last 5 closes inside a 5% band (flagpole + tight flag)
+      oversold        Wilder RSI-14 < 30
+      oversold_bounce RSI-14 was < 30 yesterday AND today closed up
+    """
+    c = list(closes)
+    if len(c) < 30:
+        return []
+    last = c[-1]
+    hi20 = max(c[-21:-1])
+    ma20 = sum(c[-20:]) / 20
+    ma20_prev = sum(c[-21:-1]) / 20
+    run = c[-6] / c[-16] - 1 if c[-16] else 0.0
+    rng5 = (max(c[-5:]) - min(c[-5:])) / last if last else 1.0
+    r, r_prev = rsi(c), rsi(c[:-1])
+    tags = []
+    if last > hi20:
+        tags.append("breakout_20d")
+    if run > 0.10 and rng5 < 0.05:
+        tags.append("bull_flag")
+    if c[-2] < ma20_prev and last > ma20:
+        tags.append("reclaim_ma20")
+    if r is not None and r < 30:
+        tags.append("oversold")
+    if r_prev is not None and r_prev < 30 and last > c[-2]:
+        tags.append("oversold_bounce")
+    return tags
+
+
 def opening_range(df, candles=3):
     """High/low of the first N candles of the latest session (default 15 min)."""
     last_day = df["date"].iloc[-1].date()

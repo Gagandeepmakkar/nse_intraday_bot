@@ -565,6 +565,20 @@ def _pick_lines(n, r):
     ]
     if r.get("sector"):
         lines.append(f"   Sector: {r['sector']} ({r.get('sector_chg', 0):+.2f}% avg today)")
+    if r.get("setups"):
+        lines.append(f"   Daily setups: {', '.join(r['setups'])}")
+    tm = r.get("timemachine")
+    if tm:
+        mc = tm["mc"]
+        lines.append(f"   Time Machine ({mc['replays']} replays to T1): target "
+                     f"{mc['p_target']*100:.0f}% / stop {mc['p_stop']*100:.0f}% / neither "
+                     f"{mc['p_neither']*100:.0f}% | avg {mc['avg_R']:+.2f}R | {tm['verdict']}")
+    rk = r.get("risk")
+    if rk:
+        if rk["reasons"]:
+            lines.append(f"   Risk gate: {rk['verdict']} — {'; '.join(rk['reasons'])}")
+        else:
+            lines.append(f"   Risk gate: PASS (net R:R {rk['net_rr']}, max loss ₹{rk['max_loss']:.0f})")
     headlines = r.get("news_headlines") or []
     src_lbl = r.get("catalyst_src", "web news")
     if headlines:
@@ -763,6 +777,31 @@ def write_dashboard(*args):
     logging.info("Dashboard written to %s", DASHBOARD_PATH.resolve())
 
 
+def _enrich_picks(picks):
+    """Attach Time Machine odds, a deterministic risk-gate verdict, and daily
+    swing-setup tags to each shown pick. Best-effort — each piece degrades to
+    None/[] on any error so a data hiccup never breaks the scan or notifications."""
+    import risk
+    import timemachine
+    import analyze
+    for r in picks:
+        try:
+            tm = timemachine.timemachine(r["symbol"], r["side"], r["entry"], r["stop"], r["target1"])
+            r["timemachine"] = ({"mc": tm["montecarlo"], "history": tm["history"],
+                                 "verdict": tm["verdict"]} if "montecarlo" in tm else None)
+        except Exception:
+            r["timemachine"] = None
+        try:
+            r["risk"] = risk.check({"symbol": r["symbol"], "side": r["side"], "entry": r["entry"],
+                                    "stop": r["stop"], "target": r["target1"], "qty": r["qty"]})
+        except Exception:
+            r["risk"] = None
+        try:
+            r["setups"] = ind.daily_setups(analyze._hist(r["symbol"], "3mo", "1d")["close"].tolist())
+        except Exception:
+            r["setups"] = []
+
+
 # --------------------------------------------------------------------------- #
 # Main
 # --------------------------------------------------------------------------- #
@@ -896,6 +935,11 @@ def main():
                 "scanned": len(deep), "qualified": len(shortlist)}
     stamp = datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S IST")
     status = market_status(datetime.now(TZ))
+
+    # Enrich the shown picks with honest odds (Time Machine), a deterministic risk
+    # verdict (daily kill-switch etc.), and daily swing-setup tags. All best-effort
+    # — a failure never breaks the scan. Done on the union of shown picks only.
+    _enrich_picks({id(r): r for r in (top_list + buy_list)}.values())
 
     if buy_mode:  # focused: just the investable gainers
         featured = buy_list
