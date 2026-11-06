@@ -1,0 +1,1542 @@
+// © Mr.sandeep{
+//@version=6
+indicator('Time Deviation', overlay = true, max_boxes_count = 1000, max_lines_count = 500, max_labels_count = 500)
+//~~}
+
+// ~~ Tooltips {
+var string t1   = "Defines the current time zone you want the session schedule to follow (e.g. UTC+2 for Central European Summer Time)."
+var string t2   = "Toggle visibility of each session (Sydney, Tokyo, London, New York, Frankfurt, Hong Kong, Mumbai)."
+var string t2b  = "Custom display name for this session (shown on chart labels and dashboard)."
+var string t3   = "Defines the session time interval (e.g. 0900-1700). Must match the format 'HHMM-HHMM'."
+var string t4   = "Background fill color for each session. Only applies when 'Show Session Background' is enabled."
+var string t5   = "Border color for the first-hour true close line that appears after the first session hour completes."
+var string t6   = "Color used to fill the first-hour box in each session."
+var string t7   = "If checked, the background for each session box is drawn."
+var string t8   = "Draws a dashed border around each session box if enabled."
+var string t9   = "Draws a background highlight for the first hour of each session."
+var string t10  = "Controls the border around the first-hour box when enabled."
+var string t11  = "When enabled, plots a horizontal line at the true close of the first hour of the session."
+var string t12  = "Adds a label at the end of each session showing the price where the true close line was formed."
+var string t13  = "Shows a label under each session at its opening bar stating the Oro hour."
+var string t14  = "Controls the thickness of the outer border for the full session box."
+var string t15  = "Controls the border width of the first-hour range box."
+var string t16  = "Sets the width of the true close line plotted after the first hour."
+var string t17  = "Size of the True Close price label on the chart."
+var string t18  = "Size of the Oro Hour label on the chart."
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~}
+
+// ~~ Inputs {
+utc  = input.string('UTC-4', 'UTC', tooltip=t1)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ~~ MASTER FIB CONTROLLER — Script ke sabse upar dikhega {
+// ══════════════════════════════════════════════════════════════════════════════
+fib_masterEnable = input.bool(false, '══ Oro hour fib — Master ON/OFF ══',
+     group   = '🔲 MASTER CONTROLS',
+     tooltip = 'Ek hi switch se saari sessions ke Oro hour fib lines, labels aur backgrounds ON ya OFF karo. Yeh "Oro hour fib" group ke andar ke individual settings se override hota hai.')
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~}
+
+// ── Session 1 (Sydney group → Asian session) ──────────────────────────────────
+sydShow  = input.bool(true,    '',  group = 'Sydney',    inline = 'sy',  tooltip = t2)
+sydName  = input.string('Asian', '',         group = 'Sydney',    inline = 'sy',  tooltip = t2b)
+sydTime  = input.session('2000-0000', '',    group = 'Sydney',    inline = 'sy',  tooltip = t3)
+sydColor = input.color(color.green, '',      group = 'Sydney',    inline = 'sy3', tooltip = t4)
+sydLine  = input.color(color.new(color.red, 0), '', group = 'Sydney', inline = 'sy3', tooltip = t5)
+sydFH    = input.color(color.new(#333333, 0), '', group = 'Sydney',  inline = 'sy3', tooltip = t6)
+
+// ── Session 2 (Tokyo group → London session) ──────────────────────────────────
+tokShow  = input.bool(true,    '',  group = 'Tokyo',     inline = 'to',  tooltip = t2)
+tokName  = input.string('London', '',        group = 'Tokyo',     inline = 'to',  tooltip = t2b)
+tokTime  = input.session('0200-0500', '',    group = 'Tokyo',     inline = 'to',  tooltip = t3)
+tokColor = input.color(#2196f3, '',          group = 'Tokyo',     inline = 'to3', tooltip = t4)
+tokLine  = input.color(color.new(#1565c0, 0), '', group = 'Tokyo', inline = 'to3', tooltip = t5)
+tokFH    = input.color(color.new(#333333, 0), '', group = 'Tokyo',  inline = 'to3', tooltip = t6)
+
+// ── Session 3 (London group → New York session) ───────────────────────────────
+lonShow  = input.bool(true,    '',  group = 'London',    inline = 'lo',  tooltip = t2)
+lonName  = input.string('New York', '',      group = 'London',    inline = 'lo',  tooltip = t2b)
+lonTime  = input.session('0700-1000', '',    group = 'London',    inline = 'lo',  tooltip = t3)
+lonColor = input.color(#d4a574, '',          group = 'London',    inline = 'lo3', tooltip = t4)
+lonLine  = input.color(color.new(color.black, 0), '', group = 'London', inline = 'lo3', tooltip = t5)
+lonFH    = input.color(color.new(#333333, 0), '', group = 'London',  inline = 'lo3', tooltip = t6)
+
+// ── Session 4 (New York group → London Close) ─────────────────────────────────
+nycShow  = input.bool(true,    '',  group = 'New York',  inline = 'ny',  tooltip = t2)
+nycName  = input.string('London Close', '', group = 'New York',  inline = 'ny',  tooltip = t2b)
+nycTime  = input.session('1000-1200', '',    group = 'New York',  inline = 'ny',  tooltip = t3)
+nycColor = input.color(color.red, '',        group = 'New York',  inline = 'ny3', tooltip = t4)
+nycLine  = input.color(color.new(#2196f3, 0), '', group = 'New York', inline = 'ny3', tooltip = t5)
+nycFH    = input.color(color.new(#333333, 0), '', group = 'New York',  inline = 'ny3', tooltip = t6)
+
+// ── Session 5 (Frankfurt group → Midnight session) ────────────────────────────
+fraShow  = input.bool(true,    '',  group = 'Frankfurt', inline = 'fr',  tooltip = t2)
+fraName  = input.string('Midnight', '',      group = 'Frankfurt', inline = 'fr',  tooltip = t3)
+fraTime  = input.session('0000-0200', '',    group = 'Frankfurt', inline = 'fr',  tooltip = t3)
+fraColor = input.color(#00bcd4, '',          group = 'Frankfurt', inline = 'fr3', tooltip = t4)
+fraLine  = input.color(color.new(color.green, 0), '', group = 'Frankfurt', inline = 'fr3', tooltip = t5)
+fraFH    = input.color(color.new(color.black, 0), '', group = 'Frankfurt', inline = 'fr3', tooltip = t6)
+
+// ── Session 6 (Hong Kong group → CBDR session) ────────────────────────────────
+hkgShow  = input.bool(true,    '',  group = 'Hong Kong', inline = 'hk',  tooltip = t2)
+hkgName  = input.string('CBDR', '',          group = 'Hong Kong', inline = 'hk',  tooltip = t2b)
+hkgTime  = input.session('1400-2000', '',    group = 'Hong Kong', inline = 'hk',  tooltip = t3)
+hkgColor = input.color(#9e9e9e, '',          group = 'Hong Kong', inline = 'hk3', tooltip = t4)
+hkgLine  = input.color(color.new(#e91e8c, 0), '', group = 'Hong Kong', inline = 'hk3', tooltip = t5)
+hkgFH    = input.color(color.new(#2196f3, 0), '', group = 'Hong Kong',  inline = 'hk3', tooltip = t6)
+
+// ── Session 7 (Mumbai group → Mid - eVE session) ──────────────────────────────
+bomShow  = input.bool(false,   '',  group = 'Mumbai',    inline = 'bm',  tooltip = t2)
+bomName  = input.string('Mid - eVE', '',     group = 'Mumbai',    inline = 'bm',  tooltip = t2b)
+bomTime  = input.session('0330-0500', '',    group = 'Mumbai',    inline = 'bm',  tooltip = t3)
+bomColor = input.color(color.red, '',        group = 'Mumbai',    inline = 'bm3', tooltip = t4)
+bomLine  = input.color(color.new(color.red, 0), '', group = 'Mumbai', inline = 'bm3', tooltip = t5)
+bomFH    = input.color(color.new(color.black, 0), '', group = 'Mumbai', inline = 'bm3', tooltip = t6)
+
+// ── Rebuild arrays from individual inputs ────────────────────────────────────
+show            = array.from(sydShow, tokShow, lonShow, nycShow, fraShow, hkgShow, bomShow)
+times           = array.from(sydTime, tokTime, lonTime, nycTime, fraTime, hkgTime, bomTime)
+colors          = array.from(sydColor, tokColor, lonColor, nycColor, fraColor, hkgColor, bomColor)
+lineColors      = array.from(sydLine,  tokLine,  lonLine,  nycLine,  fraLine,  hkgLine,  bomLine)
+firstHourColors = array.from(sydFH, tokFH, lonFH, nycFH, fraFH, hkgFH, bomFH)
+
+// ── Display Options ──────────────────────────────────────────────────────────
+showSessionBg    = input.bool(true,  'Show Session Background',    group = 'Display Options', tooltip = t7)
+showSessionBrdr  = input.bool(false, 'Show Session Border',        group = 'Display Options', tooltip = t8)
+showFirstHourBg  = input.bool(true,  'Show First Hour Background', group = 'Display Options', tooltip = t9)
+showFirstHourBrd = input.bool(false, 'Show First Hour Border',     group = 'Display Options', tooltip = t10)
+showLine         = input.bool(true,  'Show True Close Line',       group = 'Display Options', tooltip = t11)
+showTrueClose    = input.bool(true,  'Show True Close Label',      group = 'Display Options', tooltip = t12)
+showExHour       = input.bool(true,  'Show Oro Hour Label',  group = 'Display Options', tooltip = t13)
+
+// ── ✅ History Days — SIRF Closing Lines ke liye ──────────────────────────────
+historyDays = input.int(2, 'History Days to Show  (Closing Lines)',
+     minval  = 1,
+     maxval  = 30,
+     step    = 1,
+     group   = 'Display Options',
+     tooltip = 'Sirf Session True-Close Lines kitne din pichhe tak dikhni chahiye. Default 3. Yeh sirf closing lines ko control karta hai — boxes/labels ke liye alag "Max Box Days" setting use karo.')
+
+// ── ✅ NEW: Max Box Days — SIRF Session Boxes + Labels ke liye ────────────────
+maxBoxDays = input.int(5, 'Max Box Days  (Session Boxes & Labels)',
+     minval  = 1,
+     maxval  = 30,
+     step    = 1,
+     group   = 'Display Options',
+     tooltip = 'Session Boxes (full box + first hour box) aur unke Labels kitne din pichhe tak dikhne chahiye. Default 3. Yeh sirf boxes/labels ko control karta hai — closing lines ke liye upar wali "History Days" setting use karo.')
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+extendHoursStr = input.string('8', 'Extend True Close Lines (Hours)',
+     options = ['None', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'],
+     group   = 'Display Options',
+     tooltip = 'Manually extend the CURRENT DAY session true close line forward by selected hours. None = no extension. Previous day lines are never extended.')
+
+extendHours = extendHoursStr == 'None' ? 0.0 : str.tonumber(extendHoursStr)
+
+extendLastN = input.int(7, 'Extend Last N Sessions',
+     minval  = 1,
+     maxval  = 7,
+     step    = 1,
+     group   = 'Display Options',
+     tooltip = 'Kitni recent sessions ki true close lines extend karni hain (sirf current day ki). 1 = sirf sabse recent session, 4 = last 4 sessions, etc.')
+
+trueCloseLabelSize = input.string('Tiny', 'True Close Label Size',
+     options = ['Tiny', 'Small', 'Normal', 'Large'],
+     group = 'Display Options', tooltip = t17)
+
+execHourLabelSize  = input.string('Tiny', 'Oro Hour Label Size',
+     options = ['Tiny', 'Small', 'Normal', 'Large'],
+     group = 'Display Options', tooltip = t18)
+
+sessionBorderWidth   = input.int(1, 'Session Border Width',    minval = 0, maxval = 5, group = 'Display Options', tooltip = t14)
+firstHourBorderWidth = input.int(1, 'First Hour Border Width', minval = 0, maxval = 5, group = 'Display Options', tooltip = t15)
+lineWidth            = input.int(1, 'Line Width',              minval = 1, maxval = 10, group = 'Display Options', tooltip = t16)
+showDashTable        = input.bool(false, 'Show Dashboard Table',
+     group   = 'Display Options',
+     tooltip = 'Dashboard table ko chart par show ya hide karo.')
+tableTextSize        = input.string('Tiny', 'Dashboard Table Text Size',
+     options = ['Tiny', 'Small', 'Normal'],
+     group   = 'Display Options',
+     tooltip = 'Dashboard table mein text ka size — Tiny, Small, ya Normal.')
+
+// ── Dynamic history cutoffs ──────────────────────────────────────────────────
+// Closing lines ke liye
+HISTORY_MS      = historyDays * 24 * 60 * 60 * 1000
+// Session boxes + labels ke liye (ALAG calculation)
+BOX_HISTORY_MS  = maxBoxDays  * 24 * 60 * 60 * 1000
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ~~ SESSION FVG INPUTS {
+// ══════════════════════════════════════════════════════════════════════════════
+fvg_enable       = input.bool(true,  '═══ Session FVG On/Off ═══',      group = 'Session FVG')
+fvg_bullColor    = input.color(color.new(#2157f3, 70), 'Bull FVG Color', group = 'Session FVG', inline = 'fvgc')
+fvg_bearColor    = input.color(color.new(#fc0101, 70), 'Bear FVG Color', group = 'Session FVG', inline = 'fvgc')
+fvg_lineExtend   = input.int(10, 'FVG Line Extend (bars)',   minval = 1, maxval = 100, group = 'Session FVG')
+fvg_lastWinMin   = input.int(15, 'Last FVG Window (minutes before session end)',
+     minval  = 5,
+     maxval  = 120,
+     group   = 'Session FVG',
+     tooltip = 'Session khatam hone se kitne minutes pehle ka FVG "Last FVG" maana jaye.')
+fvg_showFirst    = input.bool(true,  'Show First FVG (within 1st hour)', group = 'Session FVG',
+     tooltip = 'Session open hone ke pehle 1 ghante ke ANDAR jo pehla FVG bane — sirf ek baar draw hota hai per session (bull aur bear alag-alag).')
+fvg_showLast     = input.bool(true,  'Show Last FVG (near session end)', group = 'Session FVG')
+fvg_showLabel    = input.bool(true,  'Show FVG Labels',                  group = 'Session FVG')
+fvg_labelSize    = input.string('Tiny', 'FVG Label Size',
+     options = ['Tiny', 'Small', 'Normal'],
+     group   = 'Session FVG')
+fvg_keepHistory  = input.bool(false, 'Keep FVG History',
+     group   = 'Session FVG',
+     tooltip = 'ON = purani sessions ke FVG bhi chart par dikhte rahein.')
+
+tcFvg_enable  = input.bool(true, '═══ True Close FVG On/Off ═══',
+     group   = 'Session FVG',
+     tooltip = 'Jab kisi session ka first-hour true close line bane, us level ke upar ya neeche jo pehla FVG bane usse draw karo.')
+tcFvg_bullClr = input.color(color.new(#00e5ff, 60), 'TC Bull FVG', group = 'Session FVG', inline = 'tcfvgc')
+tcFvg_bearClr = input.color(color.new(#ff6d00, 60), 'TC Bear FVG', group = 'Session FVG', inline = 'tcfvgc')
+tcFvg_extend  = input.int(14, 'TC FVG Extend (bars)', minval = 1, maxval = 200, group = 'Session FVG')
+tcFvg_showLbl = input.bool(true, 'Show TC FVG Label', group = 'Session FVG')
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ~~ Oro HOUR FIB INPUTS {
+// ══════════════════════════════════════════════════════════════════════════════
+fib_enable     = input.bool(true,  '═══ Oro hour fib On/Off ═══', group = 'Oro hour fib')
+
+fib_sess0 = input.bool(true,  'Asian',        group = 'Oro hour fib', inline = 'fibsess0', tooltip = 'Asian session ka fib on/off karo.')
+fib_sess1 = input.bool(true,  'London',       group = 'Oro hour fib', inline = 'fibsess1', tooltip = 'London session ka fib on/off karo.')
+fib_sess2 = input.bool(true,  'New York',     group = 'Oro hour fib', inline = 'fibsess2', tooltip = 'New York session ka fib on/off karo.')
+fib_sess3 = input.bool(true,  'London Close', group = 'Oro hour fib', inline = 'fibsess3', tooltip = 'London Close session ka fib on/off karo.')
+fib_sess4 = input.bool(true,  'Midnight',     group = 'Oro hour fib', inline = 'fibsess4', tooltip = 'Midnight session ka fib on/off karo.')
+fib_sess5 = input.bool(true,  'CBDR',         group = 'Oro hour fib', inline = 'fibsess5', tooltip = 'CBDR session ka fib on/off karo.')
+fib_sess6 = input.bool(true,  'Mid-eVE',      group = 'Oro hour fib', inline = 'fibsess6', tooltip = 'Mid-eVE session ka fib on/off karo.')
+fib_sessEnables = array.from(fib_sess0, fib_sess1, fib_sess2, fib_sess3, fib_sess4, fib_sess5, fib_sess6)
+fib_lineWidth  = input.int(1,  'Line Width',  minval = 1, maxval = 4,   group = 'Oro hour fib', inline = 'flw')
+fib_lineStyle  = input.string('Solid', '', options = ['Solid','Dashed','Dotted'], group = 'Oro hour fib', inline = 'flw')
+fib_extend     = input.int(1, 'Extend (bars)', minval = 1, maxval = 500, group = 'Oro hour fib')
+fib_extendDir  = input.string('Don\'t extend', 'Extend Direction',
+     options = ['Don\'t extend', 'Left', 'Right', 'Both'],
+     group   = 'Oro hour fib',
+     tooltip = 'TradingView fib tool jaisi extend direction.')
+
+// ── ✅ CHANGE 1: minval = 0, tooltip updated ──────────────────────────────────
+fib_maxSessions = input.int(1, 'Max Sessions to Show (Fib)',
+     minval  = 0,
+     maxval  = 20,
+     step    = 1,
+     group   = 'Oro hour fib',
+     tooltip = '0 = sirf LIVE/active session ka fib dikhao — session khatam hote hi automatically delete ho jata hai. 1 = sirf sabse recent session ka fib. 2+ = last N sessions ke fibs.')
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~}
+
+// ── (fib_keepHist removed — fib_maxSessions use hoga ab) ─────────────────────
+
+fib_showBg     = input.bool(true,  'Background',   group = 'Oro hour fib', inline = 'fbg')
+fib_bgTransp   = input.int(88, '',  minval = 0, maxval = 100, group = 'Oro hour fib', inline = 'fbg',
+     tooltip = 'Background fill transparency between fib levels (0=opaque, 100=invisible).')
+fib_reverse    = input.bool(false, 'Reverse',      group = 'Oro hour fib',
+     tooltip = 'Reverse fib direction: draw from Low (0) to High (1) instead of High→Low.')
+fib_showPrices = input.bool(false, 'Prices',       group = 'Oro hour fib',
+     tooltip = 'Show price value next to the level label.')
+fib_showLvl    = input.bool(true,  'Levels',       group = 'Oro hour fib', inline = 'flvl')
+fib_lvlStyle   = input.string('Values', '',        options = ['Values', 'Percent'], group = 'Oro hour fib', inline = 'flvl')
+fib_lblPos     = input.string('Left',   'Labels',  options = ['Left', 'Right', 'Both'], group = 'Oro hour fib', inline = 'flblpos')
+fib_lblAlign   = input.string('Middle', '',        options = ['Top', 'Middle', 'Bottom'], group = 'Oro hour fib', inline = 'flblpos')
+fib_showTxt    = input.bool(true,  'Text',         group = 'Oro hour fib', inline = 'ftxt')
+fib_txtAlign   = input.string('Center', '',        options = ['Left', 'Center', 'Right'], group = 'Oro hour fib', inline = 'ftxt')
+fib_txtVAlign  = input.string('Middle', '',        options = ['Top', 'Middle', 'Bottom'], group = 'Oro hour fib', inline = 'ftxt')
+fib_fontSize   = input.int(10, 'Font Size', minval = 6, maxval = 20, group = 'Oro hour fib')
+
+fib_showLvm25  = input.bool(true,   '',      group = 'Oro hour fib', inline = 'Lvm25')
+fib_valLvm25   = input.float(-2.5,  '',      group = 'Oro hour fib', inline = 'Lvm25', step = 0.001, tooltip = 'Fib level value — change karke custom level set karo.')
+fib_colLvm25   = input.color(color.new(#f7525f, 0), '', group = 'Oro hour fib', inline = 'Lvm25')
+
+fib_showLvm2   = input.bool(true,   '',      group = 'Oro hour fib', inline = 'Lvm2')
+fib_valLvm2    = input.float(-2.0,  '',      group = 'Oro hour fib', inline = 'Lvm2',  step = 0.001, tooltip = 'Fib level value — change karke custom level set karo.')
+fib_colLvm2    = input.color(color.new(#000000, 0), '', group = 'Oro hour fib', inline = 'Lvm2')
+
+fib_showLvm15  = input.bool(true,   '',      group = 'Oro hour fib', inline = 'Lvm15')
+fib_valLvm15   = input.float(-1.5,  '',      group = 'Oro hour fib', inline = 'Lvm15', step = 0.001, tooltip = 'Fib level value — change karke custom level set karo.')
+fib_colLvm15   = input.color(color.new(#f7525f, 0), '', group = 'Oro hour fib', inline = 'Lvm15')
+
+fib_showLvm1   = input.bool(true,   '',      group = 'Oro hour fib', inline = 'Lvm1')
+fib_valLvm1    = input.float(-1.0,  '',      group = 'Oro hour fib', inline = 'Lvm1',  step = 0.001, tooltip = 'Fib level value — change karke custom level set karo.')
+fib_colLvm1    = input.color(color.new(#000000, 0), '', group = 'Oro hour fib', inline = 'Lvm1')
+
+fib_showLvm008 = input.bool(true,   '',      group = 'Oro hour fib', inline = 'Lvm008')
+fib_valLvm008  = input.float(-0.08, '',      group = 'Oro hour fib', inline = 'Lvm008', step = 0.001, tooltip = 'Fib level value — change karke custom level set karo.')
+fib_colLvm008  = input.color(color.new(#000000, 0), '', group = 'Oro hour fib', inline = 'Lvm008')
+
+fib_showLv0    = input.bool(true,   '',      group = 'Oro hour fib', inline = 'Lv0')
+fib_valLv0     = input.float(0.0,   '',      group = 'Oro hour fib', inline = 'Lv0',   step = 0.001, tooltip = 'Fib level value — change karke custom level set karo.')
+fib_colLv0     = input.color(color.new(#787b86, 0), '', group = 'Oro hour fib', inline = 'Lv0')
+
+fib_showLv05   = input.bool(true,   '',      group = 'Oro hour fib', inline = 'Lv05')
+fib_valLv05    = input.float(0.5,   '',      group = 'Oro hour fib', inline = 'Lv05',  step = 0.001, tooltip = 'Fib level value — change karke custom level set karo.')
+fib_colLv05    = input.color(color.new(#2196f3, 0), '', group = 'Oro hour fib', inline = 'Lv05')
+
+fib_showLv1    = input.bool(true,   '',      group = 'Oro hour fib', inline = 'Lv1')
+fib_valLv1     = input.float(1.0,   '',      group = 'Oro hour fib', inline = 'Lv1',   step = 0.001, tooltip = 'Fib level value — change karke custom level set karo.')
+fib_colLv1     = input.color(color.new(#000000, 0), '', group = 'Oro hour fib', inline = 'Lv1')
+
+fib_showLv1135 = input.bool(true,   '',      group = 'Oro hour fib', inline = 'Lv1135')
+fib_valLv1135  = input.float(1.135, '',      group = 'Oro hour fib', inline = 'Lv1135', step = 0.001, tooltip = 'Fib level value — change karke custom level set karo.')
+fib_colLv1135  = input.color(color.new(#000000, 0), '', group = 'Oro hour fib', inline = 'Lv1135')
+
+fib_showLv134  = input.bool(true,   '',      group = 'Oro hour fib', inline = 'Lv134')
+fib_valLv134   = input.float(1.34,  '',      group = 'Oro hour fib', inline = 'Lv134', step = 0.001, tooltip = 'Fib level value — change karke custom level set karo.')
+fib_colLv134   = input.color(color.new(#000000, 0), '', group = 'Oro hour fib', inline = 'Lv134')
+
+fib_showLv2    = input.bool(true,   '',      group = 'Oro hour fib', inline = 'Lv2')
+fib_valLv2     = input.float(2.0,   '',      group = 'Oro hour fib', inline = 'Lv2',   step = 0.001, tooltip = 'Fib level value — change karke custom level set karo.')
+fib_colLv2     = input.color(color.new(#000000, 0), '', group = 'Oro hour fib', inline = 'Lv2')
+
+fib_showLv225  = input.bool(true,   '',      group = 'Oro hour fib', inline = 'Lv225')
+fib_valLv225   = input.float(2.25,  '',      group = 'Oro hour fib', inline = 'Lv225', step = 0.001, tooltip = 'Fib level value — change karke custom level set karo.')
+fib_colLv225   = input.color(color.new(#2196f3, 0), '', group = 'Oro hour fib', inline = 'Lv225')
+
+fib_showLv25   = input.bool(true,   '',      group = 'Oro hour fib', inline = 'Lv25')
+fib_valLv25    = input.float(2.5,   '',      group = 'Oro hour fib', inline = 'Lv25',  step = 0.001, tooltip = 'Fib level value — change karke custom level set karo.')
+fib_colLv25    = input.color(color.new(#000000, 0), '', group = 'Oro hour fib', inline = 'Lv25')
+
+fib_showLv38615 = input.bool(true,   '',      group = 'Oro hour fib', inline = 'Lv38615')
+fib_valLv38615  = input.float(3.8615,'',      group = 'Oro hour fib', inline = 'Lv38615', step = 0.001, tooltip = 'Fib level value — change karke custom level set karo.')
+fib_colLv38615  = input.color(color.new(#2196f3, 0), '', group = 'Oro hour fib', inline = 'Lv38615')
+
+fib_showLv4    = input.bool(true,   '',      group = 'Oro hour fib', inline = 'Lv4')
+fib_valLv4     = input.float(4.0,   '',      group = 'Oro hour fib', inline = 'Lv4',   step = 0.001, tooltip = 'Fib level value — change karke custom level set karo.')
+fib_colLv4     = input.color(color.new(#f7525f, 0), '', group = 'Oro hour fib', inline = 'Lv4')
+
+fib_showLv45   = input.bool(true,   '',      group = 'Oro hour fib', inline = 'Lv45')
+fib_valLv45    = input.float(4.5,   '',      group = 'Oro hour fib', inline = 'Lv45',  step = 0.001, tooltip = 'Fib level value — change karke custom level set karo.')
+fib_colLv45    = input.color(color.new(#f7525f, 0), '', group = 'Oro hour fib', inline = 'Lv45')
+
+fib_showE1  = input.bool(false,  '', group = 'Oro hour fib', inline = 'LvE1')
+fib_valE1   = input.float(0.618, '',        group = 'Oro hour fib', inline = 'LvE1', step = 0.001, tooltip = 'Extra fib level 1.')
+fib_colE1   = input.color(color.new(#ff9800, 0), '', group = 'Oro hour fib', inline = 'LvE1')
+
+fib_showE2  = input.bool(false,  '', group = 'Oro hour fib', inline = 'LvE2')
+fib_valE2   = input.float(1.618, '',        group = 'Oro hour fib', inline = 'LvE2', step = 0.001, tooltip = 'Extra fib level 2.')
+fib_colE2   = input.color(color.new(#e91e63, 0), '', group = 'Oro hour fib', inline = 'LvE2')
+
+fib_showE3  = input.bool(false,  '', group = 'Oro hour fib', inline = 'LvE3')
+fib_valE3   = input.float(2.618, '',        group = 'Oro hour fib', inline = 'LvE3', step = 0.001, tooltip = 'Extra fib level 3.')
+fib_colE3   = input.color(color.new(#9c27b0, 0), '', group = 'Oro hour fib', inline = 'LvE3')
+
+fib_showE4  = input.bool(false,  '', group = 'Oro hour fib', inline = 'LvE4')
+fib_valE4   = input.float(-0.5,  '',        group = 'Oro hour fib', inline = 'LvE4', step = 0.001, tooltip = 'Extra fib level 4.')
+fib_colE4   = input.color(color.new(#4caf50, 0), '', group = 'Oro hour fib', inline = 'LvE4')
+
+fib_showE5  = input.bool(false,  '', group = 'Oro hour fib', inline = 'LvE5')
+fib_valE5   = input.float(3.0,   '',        group = 'Oro hour fib', inline = 'LvE5', step = 0.001, tooltip = 'Extra fib level 5.')
+fib_colE5   = input.color(color.new(#00bcd4, 0), '', group = 'Oro hour fib', inline = 'LvE5')
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~}
+
+// ── Fib Level Arrays ─────────────────────────────────────────────────────────
+var array<float> g_fibVals  = array.new<float>(21, 0.0)
+var array<bool>  g_fibShows = array.new<bool>(21, false)
+var array<color> g_fibCols  = array.new<color>(21, color.gray)
+
+array.set(g_fibVals,  0,  fib_valLvm25)
+array.set(g_fibShows, 0,  fib_showLvm25)
+array.set(g_fibCols,  0,  fib_colLvm25)
+array.set(g_fibVals,  1,  fib_valLvm2)
+array.set(g_fibShows, 1,  fib_showLvm2)
+array.set(g_fibCols,  1,  fib_colLvm2)
+array.set(g_fibVals,  2,  fib_valLvm15)
+array.set(g_fibShows, 2,  fib_showLvm15)
+array.set(g_fibCols,  2,  fib_colLvm15)
+array.set(g_fibVals,  3,  fib_valLvm1)
+array.set(g_fibShows, 3,  fib_showLvm1)
+array.set(g_fibCols,  3,  fib_colLvm1)
+array.set(g_fibVals,  4,  fib_valLvm008)
+array.set(g_fibShows, 4,  fib_showLvm008)
+array.set(g_fibCols,  4,  fib_colLvm008)
+array.set(g_fibVals,  5,  fib_valLv0)
+array.set(g_fibShows, 5,  fib_showLv0)
+array.set(g_fibCols,  5,  fib_colLv0)
+array.set(g_fibVals,  6,  fib_valLv05)
+array.set(g_fibShows, 6,  fib_showLv05)
+array.set(g_fibCols,  6,  fib_colLv05)
+array.set(g_fibVals,  7,  fib_valLv1)
+array.set(g_fibShows, 7,  fib_showLv1)
+array.set(g_fibCols,  7,  fib_colLv1)
+array.set(g_fibVals,  8,  fib_valLv1135)
+array.set(g_fibShows, 8,  fib_showLv1135)
+array.set(g_fibCols,  8,  fib_colLv1135)
+array.set(g_fibVals,  9,  fib_valLv134)
+array.set(g_fibShows, 9,  fib_showLv134)
+array.set(g_fibCols,  9,  fib_colLv134)
+array.set(g_fibVals,  10, fib_valLv2)
+array.set(g_fibShows, 10, fib_showLv2)
+array.set(g_fibCols,  10, fib_colLv2)
+array.set(g_fibVals,  11, fib_valLv225)
+array.set(g_fibShows, 11, fib_showLv225)
+array.set(g_fibCols,  11, fib_colLv225)
+array.set(g_fibVals,  12, fib_valLv25)
+array.set(g_fibShows, 12, fib_showLv25)
+array.set(g_fibCols,  12, fib_colLv25)
+array.set(g_fibVals,  13, fib_valLv38615)
+array.set(g_fibShows, 13, fib_showLv38615)
+array.set(g_fibCols,  13, fib_colLv38615)
+array.set(g_fibVals,  14, fib_valLv4)
+array.set(g_fibShows, 14, fib_showLv4)
+array.set(g_fibCols,  14, fib_colLv4)
+array.set(g_fibVals,  15, fib_valLv45)
+array.set(g_fibShows, 15, fib_showLv45)
+array.set(g_fibCols,  15, fib_colLv45)
+array.set(g_fibVals,  16, fib_valE1)
+array.set(g_fibShows, 16, fib_showE1)
+array.set(g_fibCols,  16, fib_colE1)
+array.set(g_fibVals,  17, fib_valE2)
+array.set(g_fibShows, 17, fib_showE2)
+array.set(g_fibCols,  17, fib_colE2)
+array.set(g_fibVals,  18, fib_valE3)
+array.set(g_fibShows, 18, fib_showE3)
+array.set(g_fibCols,  18, fib_colE3)
+array.set(g_fibVals,  19, fib_valE4)
+array.set(g_fibShows, 19, fib_showE4)
+array.set(g_fibCols,  19, fib_colE4)
+array.set(g_fibVals,  20, fib_valE5)
+array.set(g_fibShows, 20, fib_showE5)
+array.set(g_fibCols,  20, fib_colE5)
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~}
+
+// ~~ type {
+type Sessions
+    array<box>   bo
+    array<box>   fbo
+    array<line>  flo
+    array<label> flabel
+    array<label> sessLabel
+    array<label> endLabel
+    array<line>  closingLines
+    array<label> closingLabels
+    array<int>   closingLineTimes
+    array<box>   histBo
+    array<box>   histFbo
+    array<int>   histBoTimes
+    array<label> histSessLabels
+    array<label> histExecLabels
+    array<int>   histLabelTimes
+    string  str
+    int     leftBar
+    int     st
+    float   o
+    float   h
+    float   l
+    float   c
+    int     lineStartBar
+    float   linePrice
+    float   fhLow
+    float   fhHigh
+    bool    fibDrawn
+    int     sessEndBar
+    int     lineDrawBar
+    int     sessEndTime
+    bool    tcFvgDoneBull
+    bool    tcFvgDoneBear
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~}
+
+// ~~ session instances {
+var a1 = Sessions.new(array.new<box>(), array.new<box>(), array.new<line>(), array.new<label>(), array.new<label>(), array.new<label>(), array.new<line>(), array.new<label>(), array.new<int>(), array.new<box>(), array.new<box>(), array.new<int>(), array.new<label>(), array.new<label>(), array.new<int>(), 'Asian',        na, na, 0.0, 0.0, 0.0, 0.0, na, na, na, 0.0, false, na, na, na, false, false)
+var a2 = Sessions.new(array.new<box>(), array.new<box>(), array.new<line>(), array.new<label>(), array.new<label>(), array.new<label>(), array.new<line>(), array.new<label>(), array.new<int>(), array.new<box>(), array.new<box>(), array.new<int>(), array.new<label>(), array.new<label>(), array.new<int>(), 'London',       na, na, 0.0, 0.0, 0.0, 0.0, na, na, na, 0.0, false, na, na, na, false, false)
+var a3 = Sessions.new(array.new<box>(), array.new<box>(), array.new<line>(), array.new<label>(), array.new<label>(), array.new<label>(), array.new<line>(), array.new<label>(), array.new<int>(), array.new<box>(), array.new<box>(), array.new<int>(), array.new<label>(), array.new<label>(), array.new<int>(), 'New York',     na, na, 0.0, 0.0, 0.0, 0.0, na, na, na, 0.0, false, na, na, na, false, false)
+var a4 = Sessions.new(array.new<box>(), array.new<box>(), array.new<line>(), array.new<label>(), array.new<label>(), array.new<label>(), array.new<line>(), array.new<label>(), array.new<int>(), array.new<box>(), array.new<box>(), array.new<int>(), array.new<label>(), array.new<label>(), array.new<int>(), 'London Close', na, na, 0.0, 0.0, 0.0, 0.0, na, na, na, 0.0, false, na, na, na, false, false)
+var a5 = Sessions.new(array.new<box>(), array.new<box>(), array.new<line>(), array.new<label>(), array.new<label>(), array.new<label>(), array.new<line>(), array.new<label>(), array.new<int>(), array.new<box>(), array.new<box>(), array.new<int>(), array.new<label>(), array.new<label>(), array.new<int>(), 'Midnight',     na, na, 0.0, 0.0, 0.0, 0.0, na, na, na, 0.0, false, na, na, na, false, false)
+var a6 = Sessions.new(array.new<box>(), array.new<box>(), array.new<line>(), array.new<label>(), array.new<label>(), array.new<label>(), array.new<line>(), array.new<label>(), array.new<int>(), array.new<box>(), array.new<box>(), array.new<int>(), array.new<label>(), array.new<label>(), array.new<int>(), 'CBDR',         na, na, 0.0, 0.0, 0.0, 0.0, na, na, na, 0.0, false, na, na, na, false, false)
+var a7 = Sessions.new(array.new<box>(), array.new<box>(), array.new<line>(), array.new<label>(), array.new<label>(), array.new<label>(), array.new<line>(), array.new<label>(), array.new<int>(), array.new<box>(), array.new<box>(), array.new<int>(), array.new<label>(), array.new<label>(), array.new<int>(), 'Mid - eVE',    na, na, 0.0, 0.0, 0.0, 0.0, na, na, na, 0.0, false, na, na, na, false, false)
+
+sessionNames = array.from(sydName, tokName, lonName, nycName, fraName, hkgName, bomName)
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~}
+
+// ~~ constants {
+const int ONE_HOUR_MS = 60 * 60 * 1000
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~}
+
+// ~~ helpers {
+formatSession(rangeStr) =>
+    start = str.substring(rangeStr, 0, 4)
+    stop  = str.substring(rangeStr, 5, 9)
+    str.format("{0}:{1}-{2}:{3}",
+     str.substring(start, 0, 2), str.substring(start, 2, 4),
+     str.substring(stop, 0, 2),  str.substring(stop, 2, 4))
+
+inSession(sessStr) =>
+    not na(time(timeframe.period, sessStr, utc))
+
+inFirstHour(sessStart) =>
+    bar_index - sessStart < math.round(60 / timeframe.multiplier)
+
+belowBox(_high, _low, percent) => _low - (_high - _low) * percent
+
+toSize(s) =>
+    s == 'Tiny'   ? size.tiny   :
+     s == 'Small'  ? size.small  :
+     s == 'Normal' ? size.normal : size.large
+
+hoursToBars(float hrs) =>
+    math.round(hrs * 60 / timeframe.multiplier)
+
+utc4NowMs() =>
+    int utc4Ms = timenow + (-4 * 60 * 60 * 1000)
+    utc4Ms
+
+isWithin3Days(int ts) =>
+    int cutoff = timenow - HISTORY_MS
+    ts >= cutoff
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~}
+
+// ── SESSION FVG STATE ─────────────────────────────────────────────────────────
+var array<bool>  fvg_firstDoneBull = array.new<bool>(7, false)
+var array<bool>  fvg_firstDoneBear = array.new<bool>(7, false)
+var array<bool>  fvg_lastDoneBull  = array.new<bool>(7, false)
+var array<bool>  fvg_lastDoneBear  = array.new<bool>(7, false)
+var array<int>   fvg_sessEndTimeArr = array.new<int>(7, na)
+
+var array<box>   fvg_fboxes_s0 = array.new<box>()
+var array<box>   fvg_fboxes_s1 = array.new<box>()
+var array<box>   fvg_fboxes_s2 = array.new<box>()
+var array<box>   fvg_fboxes_s3 = array.new<box>()
+var array<box>   fvg_fboxes_s4 = array.new<box>()
+var array<box>   fvg_fboxes_s5 = array.new<box>()
+var array<box>   fvg_fboxes_s6 = array.new<box>()
+
+var array<label> fvg_flabels_s0 = array.new<label>()
+var array<label> fvg_flabels_s1 = array.new<label>()
+var array<label> fvg_flabels_s2 = array.new<label>()
+var array<label> fvg_flabels_s3 = array.new<label>()
+var array<label> fvg_flabels_s4 = array.new<label>()
+var array<label> fvg_flabels_s5 = array.new<label>()
+var array<label> fvg_flabels_s6 = array.new<label>()
+
+var array<box>   fvg_lboxes_s0 = array.new<box>()
+var array<box>   fvg_lboxes_s1 = array.new<box>()
+var array<box>   fvg_lboxes_s2 = array.new<box>()
+var array<box>   fvg_lboxes_s3 = array.new<box>()
+var array<box>   fvg_lboxes_s4 = array.new<box>()
+var array<box>   fvg_lboxes_s5 = array.new<box>()
+var array<box>   fvg_lboxes_s6 = array.new<box>()
+
+var array<label> fvg_llabels_s0 = array.new<label>()
+var array<label> fvg_llabels_s1 = array.new<label>()
+var array<label> fvg_llabels_s2 = array.new<label>()
+var array<label> fvg_llabels_s3 = array.new<label>()
+var array<label> fvg_llabels_s4 = array.new<label>()
+var array<label> fvg_llabels_s5 = array.new<label>()
+var array<label> fvg_llabels_s6 = array.new<label>()
+
+fvg_getFBoxArr(int idx) =>
+    idx == 0 ? fvg_fboxes_s0 :
+     idx == 1 ? fvg_fboxes_s1 :
+     idx == 2 ? fvg_fboxes_s2 :
+     idx == 3 ? fvg_fboxes_s3 :
+     idx == 4 ? fvg_fboxes_s4 :
+     idx == 5 ? fvg_fboxes_s5 :
+     fvg_fboxes_s6
+
+fvg_getFLblArr(int idx) =>
+    idx == 0 ? fvg_flabels_s0 :
+     idx == 1 ? fvg_flabels_s1 :
+     idx == 2 ? fvg_flabels_s2 :
+     idx == 3 ? fvg_flabels_s3 :
+     idx == 4 ? fvg_flabels_s4 :
+     idx == 5 ? fvg_flabels_s5 :
+     fvg_flabels_s6
+
+fvg_getLBoxArr(int idx) =>
+    idx == 0 ? fvg_lboxes_s0 :
+     idx == 1 ? fvg_lboxes_s1 :
+     idx == 2 ? fvg_lboxes_s2 :
+     idx == 3 ? fvg_lboxes_s3 :
+     idx == 4 ? fvg_lboxes_s4 :
+     idx == 5 ? fvg_lboxes_s5 :
+     fvg_lboxes_s6
+
+fvg_getLLblArr(int idx) =>
+    idx == 0 ? fvg_llabels_s0 :
+     idx == 1 ? fvg_llabels_s1 :
+     idx == 2 ? fvg_llabels_s2 :
+     idx == 3 ? fvg_llabels_s3 :
+     idx == 4 ? fvg_llabels_s4 :
+     idx == 5 ? fvg_llabels_s5 :
+     fvg_llabels_s6
+
+fvg_lsize() =>
+    fvg_labelSize == 'Tiny'   ? size.tiny  :
+     fvg_labelSize == 'Normal' ? size.normal :
+     size.small
+
+// ── True Close FVG arrays ────────────────────────────────────────────────────
+var array<box>   tcfvg_boxes_s0 = array.new<box>()
+var array<box>   tcfvg_boxes_s1 = array.new<box>()
+var array<box>   tcfvg_boxes_s2 = array.new<box>()
+var array<box>   tcfvg_boxes_s3 = array.new<box>()
+var array<box>   tcfvg_boxes_s4 = array.new<box>()
+var array<box>   tcfvg_boxes_s5 = array.new<box>()
+var array<box>   tcfvg_boxes_s6 = array.new<box>()
+
+var array<label> tcfvg_labels_s0 = array.new<label>()
+var array<label> tcfvg_labels_s1 = array.new<label>()
+var array<label> tcfvg_labels_s2 = array.new<label>()
+var array<label> tcfvg_labels_s3 = array.new<label>()
+var array<label> tcfvg_labels_s4 = array.new<label>()
+var array<label> tcfvg_labels_s5 = array.new<label>()
+var array<label> tcfvg_labels_s6 = array.new<label>()
+
+tcfvg_getBoxArr(int idx) =>
+    idx == 0 ? tcfvg_boxes_s0 : idx == 1 ? tcfvg_boxes_s1 : idx == 2 ? tcfvg_boxes_s2 :
+     idx == 3 ? tcfvg_boxes_s3 : idx == 4 ? tcfvg_boxes_s4 : idx == 5 ? tcfvg_boxes_s5 :
+     tcfvg_boxes_s6
+
+tcfvg_getLblArr(int idx) =>
+    idx == 0 ? tcfvg_labels_s0 : idx == 1 ? tcfvg_labels_s1 : idx == 2 ? tcfvg_labels_s2 :
+     idx == 3 ? tcfvg_labels_s3 : idx == 4 ? tcfvg_labels_s4 : idx == 5 ? tcfvg_labels_s5 :
+     tcfvg_labels_s6
+
+tcfvg_draw(int sessIdx, bool isBull, float top, float bot, string sessNm) =>
+    _clr  = isBull ? tcFvg_bullClr : tcFvg_bearClr
+    _x1   = bar_index - 1
+    _x2   = bar_index - 1 + tcFvg_extend
+    _lbl  = (isBull ? '+' : '-') + 'TC-FVG [' + sessNm + ']'
+    _bArr = tcfvg_getBoxArr(sessIdx)
+    _lArr = tcfvg_getLblArr(sessIdx)
+    if not fvg_keepHistory
+        if _bArr.size() > 0
+            box.delete(_bArr.shift())
+        if _lArr.size() > 0
+            label.delete(_lArr.shift())
+    _b = box.new(_x1, top, _x2, bot,
+         border_color = _clr, bgcolor = _clr, border_width = 1, extend = extend.none)
+    _bArr.push(_b)
+    if tcFvg_showLbl
+        _lb = label.new(_x2, isBull ? top : bot, _lbl,
+             style     = label.style_label_left,
+             color     = color.new(color.black, 100),
+             textcolor = _clr,
+             size      = size.tiny)
+        _lArr.push(_lb)
+
+fvg_draw(int sessIdx, bool isBull, float top, float bot, string tag, string sessNm, bool isFirst) =>
+    _clr   = isBull ? fvg_bullColor : fvg_bearColor
+    _x1    = bar_index - 1
+    _x2    = bar_index - 1 + fvg_lineExtend
+    _lbl   = (isBull ? '+' : '-') + 'FVG ' + tag + ' [' + sessNm + ']'
+    _boxArr = isFirst ? fvg_getFBoxArr(sessIdx) : fvg_getLBoxArr(sessIdx)
+    _lblArr = isFirst ? fvg_getFLblArr(sessIdx) : fvg_getLLblArr(sessIdx)
+    if not fvg_keepHistory
+        if _boxArr.size() > 0
+            box.delete(_boxArr.shift())
+        if _lblArr.size() > 0
+            label.delete(_lblArr.shift())
+    _b = box.new(_x1, top, _x2, bot,
+         border_color = _clr,
+         bgcolor      = _clr,
+         border_width = 1,
+         extend       = extend.none)
+    _boxArr.push(_b)
+    if fvg_showLabel
+        _lb = label.new(_x2, isBull ? top : bot, _lbl,
+             style     = label.style_label_left,
+             color     = color.new(color.black, 100),
+             textcolor = isBull ? fvg_bullColor : fvg_bearColor,
+             size      = fvg_lsize())
+        _lblArr.push(_lb)
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~}
+
+// ── Oro hour fib — per-session storage ─────────────────────────────────────
+var array<line>  fib_lines_s0  = array.new<line>()
+var array<line>  fib_lines_s1  = array.new<line>()
+var array<line>  fib_lines_s2  = array.new<line>()
+var array<line>  fib_lines_s3  = array.new<line>()
+var array<line>  fib_lines_s4  = array.new<line>()
+var array<line>  fib_lines_s5  = array.new<line>()
+var array<line>  fib_lines_s6  = array.new<line>()
+
+var array<label> fib_labels_s0 = array.new<label>()
+var array<label> fib_labels_s1 = array.new<label>()
+var array<label> fib_labels_s2 = array.new<label>()
+var array<label> fib_labels_s3 = array.new<label>()
+var array<label> fib_labels_s4 = array.new<label>()
+var array<label> fib_labels_s5 = array.new<label>()
+var array<label> fib_labels_s6 = array.new<label>()
+
+var array<box>   fib_bgs_s0    = array.new<box>()
+var array<box>   fib_bgs_s1    = array.new<box>()
+var array<box>   fib_bgs_s2    = array.new<box>()
+var array<box>   fib_bgs_s3    = array.new<box>()
+var array<box>   fib_bgs_s4    = array.new<box>()
+var array<box>   fib_bgs_s5    = array.new<box>()
+var array<box>   fib_bgs_s6    = array.new<box>()
+
+// ── Per-session fib draw count tracker ───────────────────────────────────────
+var array<int>   fib_drawCount = array.new<int>(7, 0)
+
+fib_getLineArr(int idx) =>
+    idx == 0 ? fib_lines_s0 : idx == 1 ? fib_lines_s1 : idx == 2 ? fib_lines_s2 :
+     idx == 3 ? fib_lines_s3 : idx == 4 ? fib_lines_s4 : idx == 5 ? fib_lines_s5 :
+     fib_lines_s6
+
+fib_getLabelArr(int idx) =>
+    idx == 0 ? fib_labels_s0 : idx == 1 ? fib_labels_s1 : idx == 2 ? fib_labels_s2 :
+     idx == 3 ? fib_labels_s3 : idx == 4 ? fib_labels_s4 : idx == 5 ? fib_labels_s5 :
+     fib_labels_s6
+
+fib_getBgArr(int idx) =>
+    idx == 0 ? fib_bgs_s0 : idx == 1 ? fib_bgs_s1 : idx == 2 ? fib_bgs_s2 :
+     idx == 3 ? fib_bgs_s3 : idx == 4 ? fib_bgs_s4 : idx == 5 ? fib_bgs_s5 :
+     fib_bgs_s6
+
+fib_toLineStyle(s) =>
+    s == 'Dashed' ? line.style_dashed : s == 'Dotted' ? line.style_dotted : line.style_solid
+
+fib_toExtend(s) =>
+    s == 'Left'  ? extend.left  : s == 'Right' ? extend.right :
+     s == 'Both'  ? extend.both  : extend.none
+
+fib_toSize(n) =>
+    n <= 8  ? size.tiny  : n <= 11 ? size.small :
+     n <= 14 ? size.normal : n <= 17 ? size.large : size.huge
+
+fib_lblStyle(pos, valign) =>
+    valign == 'Top'    ? (pos == 'Right' ? label.style_label_lower_left  : label.style_label_lower_right) :
+     valign == 'Bottom' ? (pos == 'Right' ? label.style_label_upper_left  : label.style_label_upper_right) :
+                          (pos == 'Right' ? label.style_label_left        : label.style_label_right)
+
+fib_lblText(ratio, price) =>
+    _lvlStr = fib_showLvl
+         ? (fib_lvlStyle == 'Percent'
+              ? str.tostring(math.round(ratio * 100)) + '%'
+              : str.tostring(ratio))
+         : ''
+    _priceStr = fib_showPrices ? str.tostring(math.round_to_mintick(price)) : ''
+    _sep = fib_showLvl and fib_showPrices ? '  ' : ''
+    _lvlStr + _sep + _priceStr
+
+fib_countVisibleLevels() =>
+    int _cnt = 0
+    for _li = 0 to g_fibShows.size() - 1
+        if g_fibShows.get(_li)
+            _cnt += 1
+    _cnt
+
+fib_drawAll(int sessIdx, float fhH, float fhL, int x1, int extBars, string sessNm) =>
+    if fib_masterEnable
+        _base  = fib_reverse ? fhL : fhH
+        _range = fhH - fhL
+        _lArr  = fib_getLineArr(sessIdx)
+        _lblArr= fib_getLabelArr(sessIdx)
+        _x2    = x1 + extBars
+        _lstyle= fib_toLineStyle(fib_lineStyle)
+        _ext   = fib_toExtend(fib_extendDir)
+        _lsize = fib_toSize(fib_fontSize)
+        _bgArr = fib_getBgArr(sessIdx)
+
+        _levels = g_fibVals
+        _shows  = g_fibShows
+        _colors = g_fibCols
+
+        _visibleLvlCount = fib_countVisibleLevels()
+        _lblMultiplier   = fib_lblPos == 'Both' ? 2 : 1
+        _linesPerSet     = _visibleLvlCount
+        _labelsPerSet    = _visibleLvlCount * _lblMultiplier
+        _bgPerSet        = math.max(0, _visibleLvlCount - 1)
+
+        // ── ✅ CHANGE 2: fib_maxSessions == 0 → treat as 1 slot (always replace) ──
+        int _effectiveMax = fib_maxSessions == 0 ? 1 : fib_maxSessions
+        int _curCount = fib_drawCount.get(sessIdx)
+        if _curCount >= _effectiveMax
+            int _linesToDel = math.min(_linesPerSet, _lArr.size())
+            for _d = 0 to _linesToDel - 1
+                if _lArr.size() > 0
+                    line.delete(_lArr.shift())
+            int _lblsToDel = math.min(_labelsPerSet, _lblArr.size())
+            for _d = 0 to _lblsToDel - 1
+                if _lblArr.size() > 0
+                    label.delete(_lblArr.shift())
+            int _bgToDel = math.min(_bgPerSet, _bgArr.size())
+            for _d = 0 to _bgToDel - 1
+                if _bgArr.size() > 0
+                    box.delete(_bgArr.shift())
+        else
+            fib_drawCount.set(sessIdx, _curCount + 1)
+
+        var float _prevPrice = na
+        _prevPrice := na
+
+        for _li = 0 to _levels.size() - 1
+            if _shows.get(_li)
+                _ratio = _levels.get(_li)
+                _price = fib_reverse
+                     ? _base + _ratio * _range
+                     : _base - _ratio * _range
+                _clr   = _colors.get(_li)
+
+                if fib_showBg and not na(_prevPrice)
+                    _bgClr = color.new(_clr, fib_bgTransp)
+                    _bgBox = box.new(x1, math.max(_price, _prevPrice),
+                             _x2, math.min(_price, _prevPrice),
+                             border_color = color.new(color.black, 100),
+                             bgcolor      = _bgClr,
+                             extend       = extend.none)
+                    fib_getBgArr(sessIdx).push(_bgBox)
+
+                _prevPrice := _price
+
+                _ln = line.new(x1, _price, _x2, _price,
+                     xloc   = xloc.bar_index,
+                     color  = _clr,
+                     width  = fib_lineWidth,
+                     style  = _lstyle,
+                     extend = _ext)
+                _lArr.push(_ln)
+
+                _txt = fib_lblText(_ratio, _price)
+                if fib_showLvl or fib_showPrices
+                    if fib_lblPos == 'Left' or fib_lblPos == 'Both'
+                        _lstyleL = fib_lblStyle('Left', fib_lblAlign)
+                        _lb = label.new(x1, _price, _txt,
+                             xloc      = xloc.bar_index,
+                             style     = _lstyleL,
+                             color     = color.new(color.black, 100),
+                             textcolor = _clr,
+                             size      = _lsize,
+                             textalign = fib_txtAlign == 'Left' ? text.align_left :
+                                          fib_txtAlign == 'Right' ? text.align_right :
+                                          text.align_center)
+                        _lblArr.push(_lb)
+                    if fib_lblPos == 'Right' or fib_lblPos == 'Both'
+                        _lstyleR = fib_lblStyle('Right', fib_lblAlign)
+                        _lb2 = label.new(_x2, _price, _txt,
+                             xloc      = xloc.bar_index,
+                             style     = _lstyleR,
+                             color     = color.new(color.black, 100),
+                             textcolor = _clr,
+                             size      = _lsize,
+                             textalign = fib_txtAlign == 'Left' ? text.align_left :
+                                          fib_txtAlign == 'Right' ? text.align_right :
+                                          text.align_center)
+                        _lblArr.push(_lb2)
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~}
+
+// ~~ session logic {
+method RunSessions(Sessions x, int i, bool session) =>
+    if show.get(i)
+
+        if session and not session[1]
+            x.leftBar    := bar_index
+            x.st         := time
+            x.o          := open
+            x.h          := high
+            x.l          := low
+            x.c          := close
+            x.sessEndBar := na
+
+            fvg_firstDoneBull.set(i, false)
+            fvg_firstDoneBear.set(i, false)
+            fvg_lastDoneBull.set(i, false)
+            fvg_lastDoneBear.set(i, false)
+            fvg_sessEndTimeArr.set(i, na)
+            x.tcFvgDoneBull := false
+            x.tcFvgDoneBear := false
+            x.fibDrawn      := false
+            x.fhHigh        := 0.0
+
+            if array.size(x.flo) > 0
+                if not na(x.sessEndBar)
+                    line.set_x2(x.flo.get(0), x.sessEndBar)
+                    if array.size(x.endLabel) > 0
+                        label.set_x(x.endLabel.get(0), x.sessEndBar)
+                else
+                    line.set_x2(x.flo.get(0), bar_index - 1)
+                    if array.size(x.endLabel) > 0
+                        label.set_x(x.endLabel.get(0), bar_index - 1)
+                x.closingLines.push(x.flo.get(0))
+                x.closingLineTimes.push(nz(x.sessEndTime, time))
+                if array.size(x.endLabel) > 0
+                    x.closingLabels.push(x.endLabel.get(0))
+                    x.endLabel.clear()
+                x.flo.clear()
+
+            if array.size(x.bo) > 0
+                x.histBo.push(x.bo.get(0))
+                x.histFbo.push(x.fbo.get(0))
+                x.histBoTimes.push(nz(x.sessEndTime, time))
+                x.bo.clear()
+                x.fbo.clear()
+
+            if array.size(x.sessLabel) > 0
+                x.histSessLabels.push(x.sessLabel.get(0))
+                x.histLabelTimes.push(nz(x.sessEndTime, time))
+                x.sessLabel.clear()
+            if array.size(x.flabel) > 0
+                x.histExecLabels.push(x.flabel.get(0))
+                x.flabel.clear()
+
+            int _lineCutoff = timenow - HISTORY_MS
+            int _boxCutoff  = timenow - BOX_HISTORY_MS
+
+            while x.closingLineTimes.size() > 0 and x.closingLineTimes.get(0) < _lineCutoff
+                line.delete(x.closingLines.shift())
+                x.closingLineTimes.shift()
+                if x.closingLabels.size() > 0
+                    label.delete(x.closingLabels.shift())
+
+            while x.histBoTimes.size() > 0 and x.histBoTimes.get(0) < _boxCutoff
+                box.delete(x.histBo.shift())
+                box.delete(x.histFbo.shift())
+                x.histBoTimes.shift()
+
+            while x.histLabelTimes.size() > 0 and x.histLabelTimes.get(0) < _boxCutoff
+                label.delete(x.histSessLabels.shift())
+                x.histLabelTimes.shift()
+                if x.histExecLabels.size() > 0
+                    label.delete(x.histExecLabels.shift())
+
+            fullBox = box.new(bar_index, high, bar_index, low,
+             border_color = showSessionBrdr ? colors.get(i) : color.new(color.black, 100),
+             border_style = line.style_dashed,
+             bgcolor      = showSessionBg ? color.new(colors.get(i), 80) : color.new(color.black, 100),
+             border_width = sessionBorderWidth,
+             extend       = extend.none)
+            x.bo.unshift(fullBox)
+
+            hourBox = box.new(bar_index, high, bar_index, low,
+             border_color = showFirstHourBrd ? color.new(firstHourColors.get(i), 0) : color.new(color.black, 100),
+             bgcolor      = showFirstHourBg  ? color.new(firstHourColors.get(i), 80) : color.new(color.black, 100),
+             border_width = firstHourBorderWidth,
+             extend       = extend.none)
+            x.fbo.unshift(hourBox)
+
+            midXx = x.leftBar
+
+            sessLbl = label.new(midXx, x.h,
+                         text      = array.get(sessionNames, i),
+                         style     = label.style_label_lower_right,
+                         textcolor = showExHour ? chart.fg_color : na,
+                         color     = na,
+                         size      = toSize(execHourLabelSize),
+                         textalign = text.align_center,
+                         tooltip   = "Session name")
+            x.sessLabel.unshift(sessLbl)
+
+            execLbl = label.new(midXx, x.l,
+                         text      = 'Oro_☠ Hour',
+                         style     = label.style_label_upper_left,
+                         textcolor = showExHour ? chart.fg_color : na,
+                         color     = na,
+                         size      = toSize(execHourLabelSize),
+                         textalign = text.align_left,
+                         tooltip   = "Institutional view: True Close ≠ Official Close.\nMost funds treat the first hour of the next day as the real close — where final flows, rebalancing, and execution dust settles.")
+            x.flabel.unshift(execLbl)
+
+        if session
+            x.h := math.max(high, x.h)
+            x.l := math.min(low,  x.l)
+            x.c := close
+
+            fb = x.bo.get(0)
+            box.set_rightbottom(fb, bar_index, x.l)
+            box.set_top(fb, x.h)
+
+            if not na(x.st) and time - x.st < ONE_HOUR_MS
+                fh = x.fbo.get(0)
+                box.set_rightbottom(fh, bar_index, x.l)
+                box.set_top(fh, x.h)
+
+            if array.size(x.sessLabel) > 0
+                midBar = x.leftBar + math.round((bar_index - x.leftBar) / 2)
+                label.set_x(x.sessLabel.get(0), midBar)
+                label.set_y(x.sessLabel.get(0), x.h)
+
+            if not na(x.st) and time - x.st < ONE_HOUR_MS
+                x.fhLow  := x.l
+                x.fhHigh := x.h
+
+            if array.size(x.flabel) > 0
+                label.set_y(x.flabel.get(0), x.l)
+
+            if not na(x.st) and time - x.st >= ONE_HOUR_MS and array.size(x.flo) == 0 and showLine
+                x.lineDrawBar  := bar_index
+                x.lineStartBar := bar_index - 1
+                x.linePrice    := close[1]
+                l = line.new(
+                 x1     = x.lineStartBar, y1 = x.linePrice,
+                 x2     = bar_index,      y2 = x.linePrice,
+                 xloc   = xloc.bar_index,
+                 extend = extend.none,
+                 color  = lineColors.get(i),
+                 width  = lineWidth,
+                 style  = line.style_solid)
+                x.flo.unshift(l)
+
+                if array.size(x.endLabel) > 0
+                    label.delete(x.endLabel.get(0))
+                    x.endLabel.clear()
+
+                txt = str.format("{0} – {1}", array.get(sessionNames, i), str.tostring(x.linePrice))
+                lb = label.new(
+                 x         = bar_index,
+                 y         = x.linePrice,
+                 text      = txt,
+                 xloc      = xloc.bar_index,
+                 style     = label.style_label_left,
+                 color     = color.new(color.black, 100),
+                 textcolor = showTrueClose ? chart.fg_color : na,
+                 size      = toSize(trueCloseLabelSize),
+                 tooltip   = "Institutions often treat this level — the close of the first hour — as the true close of the prior day.")
+                x.endLabel.unshift(lb)
+
+            if fib_masterEnable and fib_enable and fib_sessEnables.get(i) and not na(x.st) and time - x.st >= ONE_HOUR_MS and not x.fibDrawn
+                if x.fhHigh > x.fhLow
+                    x.fibDrawn := true
+                    _fibX1 = x.leftBar
+                    fib_drawAll(i, x.fhHigh, x.fhLow, _fibX1, fib_extend,
+                                array.get(sessionNames, i))
+
+            if array.size(x.flo) > 0
+                line.set_xy2(x.flo.get(0), bar_index, x.linePrice)
+                if array.size(x.endLabel) > 0
+                    label.set_x(x.endLabel.get(0), bar_index)
+                    label.set_y(x.endLabel.get(0), x.linePrice)
+
+            if tcFvg_enable and not na(x.linePrice) and not na(x.st)
+                _tcNm      = array.get(sessionNames, i)
+                _tcLine    = x.linePrice
+                _tcBullFVG = low[0] > high[2]
+                _tcBearFVG = high[0] < low[2]
+                _tcBullAbove = _tcBullFVG and high[2] >= _tcLine
+                _tcBearBelow = _tcBearFVG and low[2] <= _tcLine
+                if _tcBullAbove and not x.tcFvgDoneBull
+                    x.tcFvgDoneBull := true
+                    tcfvg_draw(i, true, low[0], high[2], _tcNm)
+                if _tcBearBelow and not x.tcFvgDoneBear
+                    x.tcFvgDoneBear := true
+                    tcfvg_draw(i, false, low[2], high[0], _tcNm)
+
+            if fvg_enable and not na(x.st)
+                _nm = array.get(sessionNames, i)
+                _isAfterFH = time - x.st >= ONE_HOUR_MS
+                _sessStr       = times.get(i)
+                _startHH       = str.tonumber(str.substring(_sessStr, 0, 2))
+                _startMM       = str.tonumber(str.substring(_sessStr, 2, 4))
+                _endHH         = str.tonumber(str.substring(_sessStr, 5, 7))
+                _endMM         = str.tonumber(str.substring(_sessStr, 7, 9))
+                _startTotalMin = _startHH * 60 + _startMM
+                _endTotalMin   = _endHH   * 60 + _endMM
+                _sessDurMin    = _endTotalMin > _startTotalMin
+                     ? _endTotalMin - _startTotalMin
+                     : (1440 - _startTotalMin) + _endTotalMin
+                _sessDurBars   = math.round(_sessDurMin    / timeframe.multiplier)
+                _elapsedBars   = bar_index - x.leftBar
+                _remainBars    = _sessDurBars - _elapsedBars
+                _lastWinBars   = math.round(fvg_lastWinMin / timeframe.multiplier)
+                _isInLastWin   = _remainBars <= _lastWinBars and _remainBars >= 0
+                _isBullFVG = low[0] > high[2]
+                _isBearFVG = high[0] < low[2]
+                _bullTop = low[0]
+                _bullBot = high[2]
+                _bearTop = low[2]
+                _bearBot = high[0]
+
+                _isInFirstHour = time - x.st < ONE_HOUR_MS
+
+                if fvg_showFirst and _isInFirstHour
+                    if _isBullFVG and not fvg_firstDoneBull.get(i)
+                        fvg_firstDoneBull.set(i, true)
+                        fvg_draw(i, true,  _bullTop, _bullBot, 'F', _nm, true)
+                    if _isBearFVG and not fvg_firstDoneBear.get(i)
+                        fvg_firstDoneBear.set(i, true)
+                        fvg_draw(i, false, _bearTop, _bearBot, 'F', _nm, true)
+
+                if fvg_showLast and _isInLastWin
+                    if _isBullFVG
+                        fvg_draw(i, true,  _bullTop, _bullBot, 'L', _nm, false)
+                        fvg_lastDoneBull.set(i, true)
+                    if _isBearFVG
+                        fvg_draw(i, false, _bearTop, _bearBot, 'L', _nm, false)
+                        fvg_lastDoneBear.set(i, true)
+
+        if not session and session[1]
+            x.sessEndBar  := bar_index - 1
+            x.sessEndTime := time
+            if array.size(x.flo) > 0
+                line.set_x2(x.flo.get(0), x.sessEndBar)
+                if array.size(x.endLabel) > 0
+                    label.set_x(x.endLabel.get(0), x.sessEndBar)
+
+            // ── ✅ CHANGE 3: fib_maxSessions == 0 → session khatam hote hi fib delete ──
+            if fib_maxSessions == 0 and fib_masterEnable and fib_enable
+                _fLArr   = fib_getLineArr(i)
+                _fLblArr = fib_getLabelArr(i)
+                _fBgArr  = fib_getBgArr(i)
+                while _fLArr.size() > 0
+                    line.delete(_fLArr.shift())
+                while _fLblArr.size() > 0
+                    label.delete(_fLblArr.shift())
+                while _fBgArr.size() > 0
+                    box.delete(_fBgArr.shift())
+                fib_drawCount.set(i, 0)
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~}
+
+// ~~ session flags {
+syd = not na(time(timeframe.period, times.get(0), utc))
+tok = not na(time(timeframe.period, times.get(1), utc))
+lon = not na(time(timeframe.period, times.get(2), utc))
+nyc = not na(time(timeframe.period, times.get(3), utc))
+fra = not na(time(timeframe.period, times.get(4), utc))
+hkg = not na(time(timeframe.period, times.get(5), utc))
+bom = not na(time(timeframe.period, times.get(6), utc))
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~}
+
+// ~~ run sessions {
+a1.RunSessions(0, syd)
+a2.RunSessions(1, tok)
+a3.RunSessions(2, lon)
+a4.RunSessions(3, nyc)
+a5.RunSessions(4, fra)
+a6.RunSessions(5, hkg)
+a7.RunSessions(6, bom)
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ~~ True Close Line Extension — FIXED: sabse recent N sessions extend hongi
+// ══════════════════════════════════════════════════════════════════════════════
+if barstate.islast and extendHours > 0
+    _extBars = hoursToBars(extendHours)
+    _allSess = array.from(a1, a2, a3, a4, a5, a6, a7)
+
+    int _utc4Now    = timenow + (-4 * 60 * 60 * 1000)
+    int _utc4DayMs  = 24 * 60 * 60 * 1000
+    int _utc4MidnightMs = _utc4Now - (_utc4Now % _utc4DayMs)
+    int _todayStartUtc = _utc4MidnightMs + (4 * 60 * 60 * 1000)
+    int _todayEndUtc   = _todayStartUtc + _utc4DayMs
+
+    _todayEndTimes = array.new<int>()
+    _todayIndices  = array.new<int>()
+
+    for _si = 0 to 6
+        if array.get(show, _si)
+            _s = array.get(_allSess, _si)
+            if not na(_s.sessEndTime) and array.size(_s.flo) > 0
+                if _s.sessEndTime >= _todayStartUtc and _s.sessEndTime < _todayEndUtc
+                    _inserted = false
+                    if _todayEndTimes.size() > 0
+                        for _j = 0 to _todayEndTimes.size() - 1
+                            if _s.sessEndTime < _todayEndTimes.get(_j)
+                                _todayEndTimes.insert(_j, _s.sessEndTime)
+                                _todayIndices.insert(_j, _si)
+                                _inserted := true
+                                break
+                    if not _inserted
+                        _todayEndTimes.push(_s.sessEndTime)
+                        _todayIndices.push(_si)
+
+    _toExtend = array.new<int>()
+    if _todayIndices.size() > 0
+        _total  = _todayIndices.size()
+        _nLimit = math.min(extendLastN, _total)
+        for _k = 0 to _nLimit - 1
+            _toExtend.push(_todayIndices.get(_total - 1 - _k))
+
+    for _si = 0 to 6
+        if array.get(show, _si)
+            _s = array.get(_allSess, _si)
+            if array.size(_s.flo) > 0 and not na(_s.sessEndTime)
+                bool _isToday = _s.sessEndTime >= _todayStartUtc and _s.sessEndTime < _todayEndUtc
+                if _isToday and _toExtend.includes(_si)
+                    line.set_x2(_s.flo.get(0), _s.sessEndBar + _extBars)
+                    if array.size(_s.endLabel) > 0
+                        label.set_x(_s.endLabel.get(0), _s.sessEndBar + _extBars)
+                else
+                    if not na(_s.sessEndBar)
+                        line.set_x2(_s.flo.get(0), _s.sessEndBar)
+                        if array.size(_s.endLabel) > 0
+                            label.set_x(_s.endLabel.get(0), _s.sessEndBar)
+                    else
+                        line.set_x2(_s.flo.get(0), bar_index)
+                        if array.size(_s.endLabel) > 0
+                            label.set_x(_s.endLabel.get(0), bar_index)
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~}
+
+// ~~ dashboard table {
+if barstate.islast and showDashTable
+    var table dash = table.new(position.top_right, 6, 9,
+     bgcolor      = color.new(chart.bg_color, 0),
+     border_color = chart.fg_color,
+     frame_color  = color.new(chart.fg_color, 0),
+     frame_width  = 2,
+     border_width = 2)
+
+    table.cell(dash, 0, 0, "Session",
+               text_color  = chart.fg_color,
+               text_size   = toSize(tableTextSize),
+               text_halign = text.align_left,
+               tooltip     = "Regional trading block.")
+    table.cell(dash, 1, 0, "Time",
+               text_color = chart.fg_color,
+               text_size  = toSize(tableTextSize),
+               tooltip    = "Official exchange session in the UTC offset you set above.")
+    table.cell(dash, 2, 0, "In Sess",
+               text_color = chart.fg_color,
+               text_size  = toSize(tableTextSize),
+               tooltip    = "Is the session live right now?")
+    table.cell(dash, 3, 0, "1st Hr",
+               text_color = chart.fg_color,
+               text_size  = toSize(tableTextSize),
+               tooltip    = "Are we inside the first 60 min of the session?")
+    table.cell(dash, 4, 0, "True Close",
+               text_color = chart.fg_color,
+               text_size  = toSize(tableTextSize),
+               tooltip    = "First-hour closing price.")
+
+    sessArr  = array.from(a1, a2, a3, a4, a5, a6, a7)
+    rangeArr = times
+    nameArr  = sessionNames
+    visibleRow = 1
+
+    for idx = 0 to 6
+        if show.get(idx)
+            s   = sessArr.get(idx)
+            rng = rangeArr.get(idx)
+            nm  = nameArr.get(idx)
+            clr = colors.get(idx)
+
+            sessNow = inSession(rng)
+            hrNow   = sessNow and inFirstHour(s.leftBar)
+
+            txtSess = sessNow ? "Yes" : "—"
+            txtHr   = hrNow   ? "Yes" : "—"
+            txtLvl  = showLine and not na(s.linePrice) ? str.tostring(s.linePrice) : "—"
+
+            table.cell(dash, 0, visibleRow, nm,
+                     text_color  = chart.fg_color,
+                     text_size   = toSize(tableTextSize),
+                     bgcolor     = color.new(clr, 90),
+                     text_halign = text.align_left)
+            table.cell(dash, 1, visibleRow, formatSession(rng),
+                      text_color = chart.fg_color,
+                      text_size  = toSize(tableTextSize),
+                      bgcolor    = color.new(clr, 90))
+            table.cell(dash, 2, visibleRow, txtSess,
+                     text_color = sessNow ? color.lime : color.red,
+                     text_size  = toSize(tableTextSize),
+                     bgcolor    = color.new(clr, 95))
+            table.cell(dash, 3, visibleRow, txtHr,
+                     text_color = hrNow ? color.lime : color.red,
+                     text_size  = toSize(tableTextSize),
+                     bgcolor    = color.new(clr, 95))
+            table.cell(dash, 4, visibleRow, txtLvl,
+                         text_color = chart.fg_color,
+                         text_size  = toSize(tableTextSize),
+                         bgcolor    = color.new(clr, 90))
+
+            visibleRow += 1
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~}
+
+// ~~ CISD (Change in State of Delivery) {
+cisd_enable        = input.bool(true,    'Enable CISD',              group = 'CISD')
+cisd_bullColor     = input.color(color.new(#000000, 0), 'Bull CISD', inline = 'cisd_bup', group = 'CISD')
+cisd_bullStr       = input.string('+CISD', ' ',                      tooltip = 'Text displayed next to the +CISD level.', inline = 'cisd_bup', group = 'CISD')
+cisd_bullAlerts    = input.bool(false,   'Alert?',                   tooltip = 'Send alert when price closes ABOVE the current +CISD level.', inline = 'cisd_bup', group = 'CISD')
+cisd_bearColor     = input.color(color.new(#2196f3, 0), 'Bear CISD', inline = 'cisd_bep', group = 'CISD')
+cisd_bearStr       = input.string('-CISD', ' ',                      tooltip = 'Text displayed next to the -CISD level.', inline = 'cisd_bep', group = 'CISD')
+cisd_bearAlerts    = input.bool(false,   'Alert?',                   tooltip = 'Send alert when price closes ABOVE the current -CISD level.', inline = 'cisd_bep', group = 'CISD')
+cisd_lineWidth     = input.int(1,        'Line Width',               minval = 1, maxval = 5, group = 'CISD')
+cisd_lookAheadBars = input.int(5,        'Line Extension Bars',      minval = 1, maxval = 5, group = 'CISD')
+cisd_styleOption   = input.string('Solid (─)', 'Line Style',         options = ['Solid (─)', 'Dotted (┈)', 'Dashed (╌)'], group = 'CISD')
+cisd_keepLevels    = input.bool(true,    'Keep old CISD levels',     group = 'CISD')
+cisd_showTable     = input.bool(false,   'Enable stat table',        group = 'CISD')
+cisd_tablePosition = input.string('Top Right', 'Table Position',     options = ['Top Right', 'Bottom Right', 'Middle Right', 'Bottom Center', 'Middle Left'], group = 'CISD')
+
+cisd_filterFirstHour    = input.bool(true, 'Only Oro hour CISD',
+     tooltip = 'When ON, CISD levels are only drawn if the pullback started inside the first hour of any enabled session.',
+     group = 'CISD')
+cisd_filterSessionBreak = input.bool(false, 'Only After Session H/L Sweep',
+     tooltip = 'When ON, CISD levels are only drawn after price has swept (broken) the previous session High or Low.',
+     group = 'CISD')
+
+type CisdMarketStructure
+    float topPrice
+    float bottomPrice
+    bool  isBullish
+
+type CisdLevel
+    line  level
+    label txt
+    bool  completed
+
+cisd_lineStyle = cisd_styleOption == 'Dotted (┈)' ? line.style_dotted :
+                 cisd_styleOption == 'Dashed (╌)' ? line.style_dashed :
+                 line.style_solid
+
+var CisdMarketStructure cisd_currentStructure = CisdMarketStructure.new(0, 0, false)
+var cisdLevelsBu = array.new<CisdLevel>()
+var cisdLevelsBe = array.new<CisdLevel>()
+
+var bool  cisd_isBullishPullback    = false
+var bool  cisd_isBearishPullback    = false
+var float cisd_potentialTopPrice    = na
+var float cisd_potentialBottomPrice = na
+var int   cisd_bullishBreakIndex    = na
+var int   cisd_bearishBreakIndex    = na
+var bool  cisd_currentState         = false
+
+var float cisd_prevSessHigh  = na
+var float cisd_prevSessLow   = na
+var bool  cisd_sessHighSwept = false
+var bool  cisd_sessLowSwept  = false
+var float cisd_runningH      = na
+var float cisd_runningL      = na
+var bool  cisd_inAnySess     = false
+
+cisd_inFirstHourAny = false
+sessArr7  = array.from(a1, a2, a3, a4, a5, a6, a7)
+showArr7  = array.from(sydShow, tokShow, lonShow, nycShow, fraShow, hkgShow, bomShow)
+timesArr7 = array.from(sydTime, tokTime, lonTime, nycTime, fraTime, hkgTime, bomTime)
+
+for _i = 0 to 6
+    if array.get(showArr7, _i)
+        _s = array.get(sessArr7, _i)
+        _t = array.get(timesArr7, _i)
+        _inSess = not na(time(timeframe.period, _t, utc))
+        if _inSess
+            if not na(_s.st) and (time - _s.st) < ONE_HOUR_MS
+                cisd_inFirstHourAny := true
+            if not cisd_inAnySess
+                if not na(cisd_runningH) and not na(cisd_runningL)
+                    cisd_prevSessHigh  := cisd_runningH
+                    cisd_prevSessLow   := cisd_runningL
+                    cisd_sessHighSwept := false
+                    cisd_sessLowSwept  := false
+                cisd_runningH := high
+                cisd_runningL := low
+            else
+                cisd_runningH := math.max(nz(cisd_runningH, high), high)
+                cisd_runningL := math.min(nz(cisd_runningL, low),  low)
+            cisd_inAnySess := true
+
+if not cisd_inAnySess
+    cisd_inAnySess := false
+
+if not na(cisd_prevSessHigh) and high > cisd_prevSessHigh
+    cisd_sessHighSwept := true
+if not na(cisd_prevSessLow) and low < cisd_prevSessLow
+    cisd_sessLowSwept  := true
+
+cisd_filtersPass(int dir) =>
+    bool f1      = cisd_filterFirstHour    ? cisd_inFirstHourAny : true
+    bool sweepOk = dir == 1 ? cisd_sessLowSwept : cisd_sessHighSwept
+    bool f2      = cisd_filterSessionBreak ? sweepOk : true
+    f1 and f2
+
+cisd_getTablePos(pos) =>
+    switch pos
+        'Top Right'     => position.top_right
+        'Bottom Right'  => position.bottom_right
+        'Middle Right'  => position.middle_right
+        'Bottom Center' => position.bottom_center
+        'Middle Left'   => position.bottom_left
+
+if cisd_enable
+    bool cisd_bearishPullbackDetected = close[1] > open[1]
+    bool cisd_bullishPullbackDetected = close[1] < open[1]
+
+    if cisd_bearishPullbackDetected and not cisd_isBearishPullback
+        cisd_isBearishPullback := true
+        cisd_potentialTopPrice := open[1]
+        cisd_bullishBreakIndex := bar_index[1]
+
+    if cisd_bullishPullbackDetected and not cisd_isBullishPullback
+        cisd_isBullishPullback    := true
+        cisd_potentialBottomPrice := open[1]
+        cisd_bearishBreakIndex    := bar_index[1]
+
+    if cisd_isBullishPullback
+        if open < cisd_potentialBottomPrice
+            cisd_potentialBottomPrice := open
+            cisd_bearishBreakIndex    := bar_index
+        if (close < open) and (open > cisd_potentialBottomPrice)
+            cisd_potentialBottomPrice := open
+            cisd_bearishBreakIndex    := bar_index
+
+    if cisd_isBearishPullback
+        if open > cisd_potentialTopPrice
+            cisd_potentialTopPrice := open
+            cisd_bullishBreakIndex := bar_index
+        if (close > open) and open < cisd_potentialTopPrice
+            cisd_potentialTopPrice := open
+            cisd_bullishBreakIndex := bar_index
+
+    if low < cisd_currentStructure.bottomPrice
+        cisd_currentStructure.bottomPrice := low
+        cisd_currentStructure.isBullish   := false
+
+        if cisd_isBearishPullback and (bar_index - cisd_bullishBreakIndex != 0)
+            cisd_currentStructure.topPrice := math.max(high[bar_index - cisd_bullishBreakIndex], high[bar_index - cisd_bullishBreakIndex + 1])
+            cisd_isBearishPullback := false
+            if cisd_filtersPass(1)
+                cisd_bLine = line.new(cisd_bullishBreakIndex, cisd_potentialTopPrice, bar_index + cisd_lookAheadBars, cisd_potentialTopPrice, color = cisd_bullColor, width = cisd_lineWidth, style = cisd_lineStyle)
+                cisd_bLbl  = label.new(bar_index + cisd_lookAheadBars, cisd_potentialTopPrice, cisd_bullStr, color = color.new(color.white, 100), textcolor = cisd_bullColor, style = label.style_label_left, size = size.small, text_formatting = text.format_italic)
+                cisdLevelsBe.push(CisdLevel.new(cisd_bLine, cisd_bLbl, false))
+
+        else if close[1] > open[1] and close < open
+            cisd_currentStructure.topPrice := high[1]
+            cisd_isBearishPullback := false
+            if cisd_filtersPass(1)
+                cisd_bLine = line.new(cisd_bullishBreakIndex, cisd_potentialTopPrice, bar_index + cisd_lookAheadBars, cisd_potentialTopPrice, color = cisd_bullColor, width = cisd_lineWidth, style = cisd_lineStyle)
+                cisd_bLbl  = label.new(bar_index + cisd_lookAheadBars, cisd_potentialTopPrice, cisd_bullStr, color = color.new(color.white, 100), textcolor = cisd_bullColor, style = label.style_label_left, size = size.small, text_formatting = text.format_italic)
+                cisdLevelsBe.push(CisdLevel.new(cisd_bLine, cisd_bLbl, false))
+
+    if high > cisd_currentStructure.topPrice
+        cisd_currentStructure.isBullish := true
+        cisd_currentStructure.topPrice  := high
+
+        if cisd_isBullishPullback and (bar_index - cisd_bearishBreakIndex != 0)
+            cisd_currentStructure.bottomPrice := math.min(low[bar_index - cisd_bearishBreakIndex], low[bar_index - cisd_bearishBreakIndex + 1])
+            cisd_isBullishPullback := false
+            if cisd_filtersPass(-1)
+                cisd_buLine = line.new(cisd_bearishBreakIndex, cisd_potentialBottomPrice, bar_index + cisd_lookAheadBars, cisd_potentialBottomPrice, color = cisd_bearColor, width = cisd_lineWidth, style = cisd_lineStyle)
+                cisd_buLbl  = label.new(bar_index + cisd_lookAheadBars, cisd_potentialBottomPrice, cisd_bearStr, color = color.new(color.white, 100), textcolor = cisd_bearColor, style = label.style_label_left, size = size.small, text_formatting = text.format_italic)
+                cisdLevelsBu.push(CisdLevel.new(cisd_buLine, cisd_buLbl, false))
+
+        else if close[1] < open[1] and close > open
+            cisd_currentStructure.bottomPrice := low[1]
+            cisd_isBullishPullback := false
+            if cisd_filtersPass(-1)
+                cisd_buLine = line.new(cisd_bearishBreakIndex, cisd_potentialBottomPrice, bar_index + cisd_lookAheadBars, cisd_potentialBottomPrice, color = cisd_bearColor, width = cisd_lineWidth, style = cisd_lineStyle)
+                cisd_buLbl  = label.new(bar_index + cisd_lookAheadBars, cisd_potentialBottomPrice, cisd_bearStr, color = color.new(color.white, 100), textcolor = cisd_bearColor, style = label.style_label_left, size = size.small, text_formatting = text.format_italic)
+                cisdLevelsBu.push(CisdLevel.new(cisd_buLine, cisd_buLbl, false))
+
+    if array.size(cisdLevelsBu) > 1 and not cisd_keepLevels
+        cisd_old = array.shift(cisdLevelsBu)
+        line.delete(cisd_old.level)
+        label.delete(cisd_old.txt)
+
+    if array.size(cisdLevelsBe) > 1 and not cisd_keepLevels
+        cisd_old = array.shift(cisdLevelsBe)
+        line.delete(cisd_old.level)
+        label.delete(cisd_old.txt)
+
+    if array.size(cisdLevelsBu) >= 1
+        cisd_latestBu = array.get(cisdLevelsBu, 0)
+        if not cisd_latestBu.completed
+            if not (close < cisd_latestBu.level.get_y2())
+                line.set_x2(cisd_latestBu.level, bar_index + cisd_lookAheadBars)
+                label.set_x(cisd_latestBu.txt,   bar_index + cisd_lookAheadBars)
+            else
+                cisd_latestBu.completed := true
+                if cisd_bearAlerts
+                    alert('Bearish CISD Formed')
+                if cisd_filtersPass(1)
+                    cisd_bLine2 = line.new(cisd_bullishBreakIndex, cisd_potentialTopPrice, bar_index + cisd_lookAheadBars, cisd_potentialTopPrice, color = cisd_bullColor, width = cisd_lineWidth, style = cisd_lineStyle)
+                    cisd_bLbl2  = label.new(bar_index + cisd_lookAheadBars, cisd_potentialTopPrice, cisd_bullStr, color = color.new(color.white, 100), textcolor = cisd_bullColor, style = label.style_label_left, size = size.small, text_formatting = text.format_italic)
+                    cisdLevelsBe.push(CisdLevel.new(cisd_bLine2, cisd_bLbl2, false))
+                cisd_currentState := false
+
+    if array.size(cisdLevelsBe) >= 1 and not cisd_keepLevels
+        cisd_latestBe = array.get(cisdLevelsBe, 0)
+        if not cisd_latestBe.completed
+            if not (close > cisd_latestBe.level.get_y2())
+                line.set_x2(cisd_latestBe.level, bar_index + cisd_lookAheadBars)
+                label.set_x(cisd_latestBe.txt,   bar_index + cisd_lookAheadBars)
+            else
+                cisd_latestBe.completed := true
+                if cisd_bullAlerts
+                    alert('Bullish CISD Formed')
+                if cisd_filtersPass(-1)
+                    cisd_buLine2 = line.new(cisd_bearishBreakIndex, cisd_potentialBottomPrice, bar_index + cisd_lookAheadBars, cisd_potentialBottomPrice, color = cisd_bearColor, width = cisd_lineWidth, style = cisd_lineStyle)
+                    cisd_buLbl2  = label.new(bar_index + cisd_lookAheadBars, cisd_potentialBottomPrice, cisd_bearStr, color = color.new(color.white, 100), textcolor = cisd_bearColor, style = label.style_label_left, size = size.small, text_formatting = text.format_italic)
+                    cisdLevelsBu.push(CisdLevel.new(cisd_buLine2, cisd_buLbl2, false))
+                cisd_currentState := true
+
+if cisd_enable and cisd_showTable and barstate.islast
+    var cisd_tbl = table.new(cisd_getTablePos(cisd_tablePosition), 2, 3,
+         bgcolor      = chart.bg_color,
+         border_color = chart.fg_color,
+         frame_color  = chart.fg_color,
+         frame_width  = 1,
+         border_width = 1)
+    table.cell(cisd_tbl, 0, 0, syminfo.ticker + ', ' + timeframe.period + ' CISD',
+         text_size        = size.tiny,
+         text_color       = chart.fg_color,
+         text_font_family = font.family_monospace)
+    table.cell(cisd_tbl, 0, 1, 'Current State',
+         text_color       = chart.bg_color,
+         text_size        = size.small,
+         text_font_family = font.family_monospace,
+         text_formatting  = text.format_bold,
+         bgcolor          = chart.fg_color)
+    table.cell(cisd_tbl, 0, 2, cisd_currentState ? 'Bullish' : 'Bearish',
+         text_color       = chart.fg_color,
+         text_size        = size.small,
+         text_font_family = font.family_monospace,
+         text_formatting  = text.format_bold)
+
+alertcondition(cisd_enable and cisd_bullAlerts and cisd_currentState,     'Bullish CISD', 'Bullish CISD formed')
+alertcondition(cisd_enable and cisd_bearAlerts and not cisd_currentState, 'Bearish CISD', 'Bearish CISD formed')
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~}
+
+// ~~ EXTRA CLEANUP on last bar — expired lines/boxes jo session-start pe miss ho gayi {
+if barstate.islast
+    int _lineCutoff2 = timenow - HISTORY_MS
+    int _boxCutoff2  = timenow - BOX_HISTORY_MS
+    _cleanSess = array.from(a1, a2, a3, a4, a5, a6, a7)
+    for _ci = 0 to 6
+        _cs = array.get(_cleanSess, _ci)
+
+        while _cs.closingLineTimes.size() > 0 and _cs.closingLineTimes.get(0) < _lineCutoff2
+            line.delete(_cs.closingLines.shift())
+            _cs.closingLineTimes.shift()
+            if _cs.closingLabels.size() > 0
+                label.delete(_cs.closingLabels.shift())
+
+        while _cs.histBoTimes.size() > 0 and _cs.histBoTimes.get(0) < _boxCutoff2
+            box.delete(_cs.histBo.shift())
+            box.delete(_cs.histFbo.shift())
+            _cs.histBoTimes.shift()
+
+        while _cs.histLabelTimes.size() > 0 and _cs.histLabelTimes.get(0) < _boxCutoff2
+            label.delete(_cs.histSessLabels.shift())
+            _cs.histLabelTimes.shift()
+            if _cs.histExecLabels.size() > 0
+                label.delete(_cs.histExecLabels.shift())
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~}
+
+// ~~ ACTIVE flo/bo CLEANUP {
+if barstate.islast
+    int _lineCutoff3 = timenow - HISTORY_MS
+    int _boxCutoff3  = timenow - BOX_HISTORY_MS
+    _activeSess = array.from(a1, a2, a3, a4, a5, a6, a7)
+    for _ai = 0 to 6
+        _as = array.get(_activeSess, _ai)
+
+        if _as.flo.size() > 0
+            bool _floExpired = false
+            if not na(_as.sessEndTime) and _as.sessEndTime < _lineCutoff3
+                _floExpired := true
+            else if not na(_as.st) and _as.st < _lineCutoff3 and na(_as.sessEndTime)
+                _floExpired := true
+            if _floExpired
+                line.delete(_as.flo.get(0))
+                _as.flo.clear()
+                if _as.endLabel.size() > 0
+                    label.delete(_as.endLabel.get(0))
+                    _as.endLabel.clear()
+
+        if _as.bo.size() > 0
+            bool _boExpired = false
+            if not na(_as.sessEndTime) and _as.sessEndTime < _boxCutoff3
+                _boExpired := true
+            else if not na(_as.st) and _as.st < _boxCutoff3 and na(_as.sessEndTime)
+                _boExpired := true
+            if _boExpired
+                box.delete(_as.bo.get(0))
+                _as.bo.clear()
+                if _as.fbo.size() > 0
+                    box.delete(_as.fbo.get(0))
+                    _as.fbo.clear()
+                if _as.sessLabel.size() > 0
+                    label.delete(_as.sessLabel.get(0))
+                    _as.sessLabel.clear()
+                if _as.flabel.size() > 0
+                    label.delete(_as.flabel.get(0))
+                    _as.flabel.clear()
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

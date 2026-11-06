@@ -655,6 +655,8 @@ h1{font-size:20px;margin:0 0 4px}
 .news{margin:8px 0 0}.news .nt{font-size:12px;color:#8a94a2;margin-bottom:4px}
 .news ul{margin:0;padding-left:18px}.news li{font-size:13px;margin:2px 0}
 .chart{height:220px;margin:12px 0 4px;border:1px solid #232c38;border-radius:8px;overflow:hidden}
+.sig{font-size:12.5px;color:#c3cad6;background:#0f1419;border:1px solid #232c38;border-radius:8px;padding:7px 10px;margin:6px 0}
+.sig b{color:#e6e9ee}.sig.ok{border-color:#1c4a30}.sig.bad{border-color:#4a1c1c}
 .foot{color:#7a8494;font-size:12px;margin-top:20px;border-top:1px solid #232c38;padding-top:12px}
 """
 
@@ -726,6 +728,25 @@ def build_dashboard_html(stamp, status, regime, regime_detail, breadth, coverage
                   + _badge(f"Trend {trend}", f"b-{trend.lower()}"))
         if r.get("catalyst"):
             badges += _badge(f"CATALYST {r.get('news_direction', 'NEUTRAL')}", "b-cat")
+        if r.get("risk"):
+            rv = r["risk"]["verdict"]
+            badges += _badge(f"RISK {rv}", "b-up" if rv == "PASS" else "b-down")
+        # Signals block: daily setups, Time Machine odds, risk-gate detail.
+        sig = []
+        if r.get("setups"):
+            sig.append(f'<div class="sig">📈 Daily setups: <b>{html.escape(", ".join(r["setups"]))}</b></div>')
+        tm = r.get("timemachine")
+        if tm:
+            mc = tm["mc"]
+            sig.append(f'<div class="sig">🕰 Time Machine — target <b>{mc["p_target"]*100:.0f}%</b> / '
+                       f'stop <b>{mc["p_stop"]*100:.0f}%</b> / neither {mc["p_neither"]*100:.0f}% · '
+                       f'avg <b>{mc["avg_R"]:+.2f}R</b> — {html.escape(tm["verdict"])}</div>')
+        rk = r.get("risk")
+        if rk:
+            detail = "; ".join(rk["reasons"]) if rk["reasons"] else f'net R:R {rk["net_rr"]}, max loss ₹{rk["max_loss"]:.0f}'
+            sig.append(f'<div class="sig {"ok" if rk["verdict"]=="PASS" else "bad"}">🛡 Risk gate: '
+                       f'<b>{rk["verdict"]}</b> — {html.escape(detail)}</div>')
+        signals = "".join(sig)
         headlines = r.get("news_headlines") or []
         if headlines:
             src_lbl = r.get("catalyst_src", "web news")
@@ -743,7 +764,7 @@ def build_dashboard_html(stamp, status, regime, regime_detail, breadth, coverage
             f'<div class="card {side}"><div class="chead">'
             f'<span class="rank">#{n}</span><span class="sym">{html.escape(r["symbol"])}</span>'
             f'{badges}<span class="score">score {r["score"]:.1f}/100</span></div>'
-            f'<div class="grid">{grid}</div>{chart_div}'
+            f'<div class="grid">{grid}</div>{chart_div}{signals}'
             f'<div class="reason">{html.escape(r["reason"])}</div>{news}</div>')
     body = "".join(cards) if cards else (
         '<div class="card"><div class="chead"><span class="sym">No qualified trade</span></div>'

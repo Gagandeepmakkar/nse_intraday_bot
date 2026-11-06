@@ -1,0 +1,116 @@
+//@version=5
+// NSE Multi-Timeframe Trend + Pullback — works on 5m / 15m / 1h / 1D / 1W.
+// Better than a breakout chase: it buys PULLBACKS in an established trend (dip to
+// EMA20/VWAP that bounces) with a higher-timeframe trend filter, Supertrend, RSI and
+// MACD confirmation. Draws entry/stop/T1/T2 and fires alerts. Confirmation only — trade
+// manually. Put on TradingView.com (not Groww). Works for intraday AND swing.
+indicator("NSE Multi-TF Trend + Pullback", overlay=true, max_lines_count=200, max_labels_count=200)
+
+// ===== Inputs =====
+emaFastL = input.int(20,  "EMA fast",  group="Trend")
+emaMidL  = input.int(50,  "EMA mid",   group="Trend")
+emaSlowL = input.int(200, "EMA slow",  group="Trend")                                                          
+stFactor = input.float(3.0, "Supertrend factor", group="Trend")
+stATR    = input.int(10,  "Supertrend ATR",      group="Trend")
+rsiLen   = input.int(14,  "RSI length", group="Momentum")
+atrLen   = input.int(14,  "ATR length", group="Risk")
+slMult   = input.float(1.5, "Stop = ATR ×", step=0.1, group="Risk")
+t1Mult   = input.float(1.5, "T1   = ATR ×", step=0.1, group="Risk")
+t2Mult   = input.float(3.0, "T2   = ATR ×", step=0.1, group="Risk")
+pbPct    = input.float(0.3, "Pullback zone (% around EMA20)", step=0.1, group="Entry")
+htfIn    = input.timeframe("", "Higher-TF filter (blank = auto)", group="Trend")
+
+// ===== Indicators =====
+ema20 = ta.ema(close, emaFastL)
+ema50 = ta.ema(close, emaMidL)
+ema200 = ta.ema(close, emaSlowL)
+atrV  = ta.atr(atrLen)
+rsiV  = ta.rsi(close, rsiLen)
+[stLine, stDir] = ta.supertrend(stFactor, stATR)   // stDir: -1 up, +1 down
+[macdL, sigL, hist] = ta.macd(close, 12, 26, 9)
+isIntraday = timeframe.isintraday
+vwapV = isIntraday ? ta.vwap(hlc3) : na
+
+plot(ema20,  "EMA20",  color.new(color.aqua, 0), 1)
+plot(ema50,  "EMA50",  color.new(color.blue, 0), 1)
+plot(ema200, "EMA200", color.new(color.gray, 0), 2)
+plot(stLine, "Supertrend", stDir < 0 ? color.new(color.green, 0) : color.new(color.red, 0), 2)
+plot(vwapV,  "VWAP", color.new(color.orange, 0), 1)
+
+// ===== Higher-timeframe trend filter (auto: step up one TF) =====
+autoHtf = timeframe.period == "1" or timeframe.period == "3" or timeframe.period == "5" or timeframe.period == "15" or timeframe.period == "30" or timeframe.period == "60" ? "D" : timeframe.period == "D" ? "W" : timeframe.period == "W" ? "M" : "D"
+htf = htfIn == "" ? autoHtf : htfIn
+htfE20 = request.security(syminfo.tickerid, htf, ta.ema(close, 20), lookahead=barmerge.lookahead_off)
+htfE50 = request.security(syminfo.tickerid, htf, ta.ema(close, 50), lookahead=barmerge.lookahead_off)
+htfUp   = htfE20 > htfE50
+htfDown = htfE20 < htfE50
+
+// ===== Trend state (this timeframe) =====
+upTrend   = ema20 > ema50 and close > ema50 and stDir < 0
+downTrend = ema20 < ema50 and close < ema50 and stDir > 0
+
+// ===== PULLBACK ENTRY (buy the dip in a trend, not the breakout top) =====
+zone = ema20 * pbPct / 100
+// price recently pulled back into the EMA20 zone, now closing back up/down with momentum turning
+longPB  = upTrend and htfUp and (low <= ema20 + zone) and close > open and close > ema20 and rsiV > rsiV[1] and rsiV < 68
+shortPB = downTrend and htfDown and (high >= ema20 - zone) and close < open and close < ema20 and rsiV < rsiV[1] and rsiV > 32
+
+// one entry per trend leg: re-arm when trend flips
+var bool armedL = true
+var bool armedS = true
+if stDir > 0
+    armedL := true            // uptrend ended -> re-arm long for next leg
+if stDir < 0
+    armedS := true
+longTrig  = longPB  and armedL
+shortTrig = shortPB and armedS
+if longTrig
+    armedL := false
+if shortTrig
+    armedS := false
+
+// ===== Draw entry / stop / targets =====
+draw(_e, _sl, _t1, _t2, _long) =>
+    xr = bar_index + 15
+    line.new(bar_index, _e,  xr, _e,  color=color.new(color.aqua, 0), width=2)
+    line.new(bar_index, _sl, xr, _sl, color=color.new(color.red, 0), width=1, style=line.style_dashed)
+    line.new(bar_index, _t1, xr, _t1, color=color.new(color.yellow, 0), width=1, style=line.style_dashed)
+    line.new(bar_index, _t2, xr, _t2, color=color.new(color.green, 0), width=1, style=line.style_dashed)
+    rr = math.round(math.abs(_t1 - _e) / math.abs(_e - _sl), 2)
+    label.new(bar_index, _e, (_long ? "LONG " : "SHORT ") + str.tostring(_e, format.mintick) + "  R:R " + str.tostring(rr),
+              style=_long ? label.style_label_up : label.style_label_down,
+              color=_long ? color.green : color.red, textcolor=color.white, size=size.small)
+
+if longTrig
+    sl = math.min(low, low[1], low[2]) - 0.1 * atrV
+    sl := math.min(sl, close - slMult * atrV)
+    draw(close, sl, close + t1Mult * atrV, close + t2Mult * atrV, true)
+if shortTrig
+    sl = math.max(high, high[1], high[2]) + 0.1 * atrV
+    sl := math.max(sl, close + slMult * atrV)
+    draw(close, sl, close - t1Mult * atrV, close - t2Mult * atrV, false)
+
+plotshape(longTrig,  "LONG pullback",  shape.triangleup,   location.belowbar, color.new(color.green, 0), size=size.small)
+plotshape(shortTrig, "SHORT pullback", shape.triangledown, location.abovebar, color.new(color.red, 0),   size=size.small)
+
+// ===== Status table =====
+var table t = table.new(position.top_right, 2, 6, border_width=1)
+if barstate.islast
+    bias = upTrend ? "UPTREND" : downTrend ? "DOWNTREND" : "RANGE/MIXED"
+    bcol = upTrend ? color.lime : downTrend ? color.red : color.silver
+    table.cell(t, 0, 0, "Trend ("+timeframe.period+")", text_color=color.white, bgcolor=color.new(color.gray, 60))
+    table.cell(t, 1, 0, bias, text_color=bcol)
+    table.cell(t, 0, 1, "Higher TF ("+htf+")", text_color=color.white, bgcolor=color.new(color.gray, 60))
+    table.cell(t, 1, 1, htfUp ? "UP" : htfDown ? "DOWN" : "FLAT", text_color = htfUp ? color.lime : htfDown ? color.red : color.silver)
+    table.cell(t, 0, 2, "Supertrend", text_color=color.white, bgcolor=color.new(color.gray, 60))
+    table.cell(t, 1, 2, stDir < 0 ? "BULL" : "BEAR", text_color = stDir < 0 ? color.lime : color.red)
+    table.cell(t, 0, 3, "RSI(14)", text_color=color.white, bgcolor=color.new(color.gray, 60))
+    table.cell(t, 1, 3, str.tostring(rsiV, "#.0"), text_color = rsiV > 60 ? color.lime : rsiV < 40 ? color.red : color.silver)
+    table.cell(t, 0, 4, "MACD", text_color=color.white, bgcolor=color.new(color.gray, 60))
+    table.cell(t, 1, 4, hist > 0 ? "rising" : "falling", text_color = hist > 0 ? color.lime : color.red)
+    table.cell(t, 0, 5, "Signal", text_color=color.white, bgcolor=color.new(color.gray, 60))
+    table.cell(t, 1, 5, longTrig ? "BUY DIP" : shortTrig ? "SELL RALLY" : "wait", text_color = longTrig ? color.lime : shortTrig ? color.red : color.silver)
+
+// ===== Alerts =====
+alertcondition(longTrig,  "Long pullback",  'LONG {{ticker}} {{interval}} entry {{close}}')
+alertcondition(shortTrig, "Short pullback", 'SHORT {{ticker}} {{interval}} entry {{close}}')

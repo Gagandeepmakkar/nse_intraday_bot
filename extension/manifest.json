@@ -1,14 +1,15 @@
 {
   "manifest_version": 3,
-  "name": "NSE Intraday Live Confirm",
-  "version": "0.4.0",
-  "description": "Runs multiple algorithms live on the bot's picks (popup) and overlays BUY/SELL/target on your Groww chart. Manual execution only.",
+  "name": "NSE Groww Live",
+  "version": "1.0.0",
+  "description": "Live trade assistant on your Groww chart: scored BUY/SELL, trade management, mini chart, desktop alerts. Uses your own Groww session data. Manual execution only.",
   "action": {
     "default_popup": "popup.html",
-    "default_title": "NSE Intraday Live Confirm"
+    "default_title": "NSE Groww Live"
   },
   "permissions": ["storage"],
   "host_permissions": [
+    "https://groww.in/*",
     "https://query1.finance.yahoo.com/*",
     "https://query2.finance.yahoo.com/*",
     "http://127.0.0.1:8787/*"
@@ -17,9 +18,16 @@
   "content_scripts": [
     {
       "matches": ["https://groww.in/*"],
+      "js": ["inject_hook.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://groww.in/*"],
       "js": ["lib/lwc.js", "algos.js", "content.js"],
       "css": ["content.css"],
-      "run_at": "document_idle"
+      "run_at": "document_idle",
+      "world": "ISOLATED"
     }
   ]
 }

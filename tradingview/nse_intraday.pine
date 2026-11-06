@@ -1,0 +1,109 @@
+//@version=5
+// NSE Intraday — VWAP/EMA/ORB/RSI with multi-timeframe trend (mirrors the Python bot).
+// Put this on a 5-minute NSE chart on TradingView.com (NOT Groww — Groww can't run
+// custom scripts). It plots the same logic the bot's emails use, marks LONG/SHORT
+// setups, draws entry/stop/T1/T2, and can fire alerts. Confirmation only — trade manually.
+indicator("NSE Intraday (bot parity)", overlay=true, max_lines_count=100, max_labels_count=100)
+
+// ================= Inputs =================
+orMinutes = input.int(15,  "Opening-range minutes", minval=5, step=5, group="Setup")
+emaFastL  = input.int(20,  "EMA fast",  group="Setup")
+emaSlowL  = input.int(50,  "EMA slow",  group="Setup")
+rsiLen    = input.int(14,  "RSI length", group="Setup")
+atrLen    = input.int(14,  "ATR length", group="Risk")
+slMult    = input.float(1.2, "Stop  = ATR ×", step=0.1, group="Risk")
+t1Mult    = input.float(1.5, "T1    = ATR ×", step=0.1, group="Risk")
+t2Mult    = input.float(2.5, "T2    = ATR ×", step=0.1, group="Risk")
+showBands = input.bool(true, "VWAP ±1σ/±2σ bands", group="Display")
+sessStart = input.int(555, "Session start (min from midnight, 555=09:15)", group="Setup")
+
+// ================= Core indicators =================
+vwapV = ta.vwap(hlc3)                 // auto-resets each session
+devV  = ta.stdev(close, 20)
+ema20 = ta.ema(close, emaFastL)
+ema50 = ta.ema(close, emaSlowL)
+atrV  = ta.atr(atrLen)
+rsiV  = ta.rsi(close, rsiLen)
+
+plot(vwapV, "VWAP", color.new(color.orange, 0), 2)
+p1u = plot(showBands ? vwapV + devV     : na, "VWAP +1σ", color.new(color.orange, 70))
+p1d = plot(showBands ? vwapV - devV     : na, "VWAP -1σ", color.new(color.orange, 70))
+p2u = plot(showBands ? vwapV + 2 * devV : na, "VWAP +2σ", color.new(color.orange, 85))
+p2d = plot(showBands ? vwapV - 2 * devV : na, "VWAP -2σ", color.new(color.orange, 85))
+fill(p1u, p1d, color.new(color.orange, 93))
+plot(ema20, "EMA20", color.new(color.aqua, 0), 1)
+plot(ema50, "EMA50", color.new(color.blue, 0), 1)
+
+// ================= Multi-timeframe (daily) trend =================
+dEma20 = request.security(syminfo.tickerid, "D", ta.ema(close, 20), lookahead=barmerge.lookahead_off)
+dEma50 = request.security(syminfo.tickerid, "D", ta.ema(close, 50), lookahead=barmerge.lookahead_off)
+dTrend = dEma20 > dEma50 ? "UP" : dEma20 < dEma50 ? "DOWN" : "FLAT"
+
+// ================= Opening range (NSE 09:15 + orMinutes) =================
+minOfDay = hour * 60 + minute
+inOR     = minOfDay >= sessStart and minOfDay < sessStart + orMinutes
+afterOR  = minOfDay >= sessStart + orMinutes
+newDay   = ta.change(time("D")) != 0
+
+var float orHigh = na
+var float orLow  = na
+var bool  firedL = false
+var bool  firedS = false
+if newDay
+    orHigh := na
+    orLow  := na
+    firedL := false
+    firedS := false
+if inOR
+    orHigh := na(orHigh) ? high : math.max(orHigh, high)
+    orLow  := na(orLow)  ? low  : math.min(orLow,  low)
+
+plot(orHigh, "ORB high", color.new(color.green, 30), 1, plot.style_linebr)
+plot(orLow,  "ORB low",  color.new(color.red, 30),   1, plot.style_linebr)
+
+// ================= Setup logic (same as the bot) =================
+longSetup  = afterOR and not na(orHigh) and close > orHigh and close > vwapV and ema20 > ema50
+shortSetup = afterOR and not na(orLow)  and close < orLow  and close < vwapV and ema20 < ema50
+longTrig   = longSetup  and not firedL
+shortTrig  = shortSetup and not firedS
+if longTrig
+    firedL := true
+if shortTrig
+    firedS := true
+
+// Draw entry/stop/targets on a fresh trigger
+drawLevels(_entry, _sl, _t1, _t2, _isLong) =>
+    col = _isLong ? color.green : color.red
+    line.new(bar_index, _entry, bar_index + 12, _entry, color=color.new(color.aqua, 0), width=2)
+    line.new(bar_index, _sl,    bar_index + 12, _sl,    color=color.new(color.red, 0),  width=1, style=line.style_dashed)
+    line.new(bar_index, _t1,    bar_index + 12, _t1,    color=color.new(color.yellow, 0), width=1, style=line.style_dashed)
+    line.new(bar_index, _t2,    bar_index + 12, _t2,    color=color.new(color.green, 0),  width=1, style=line.style_dashed)
+    label.new(bar_index, _entry, (_isLong ? "LONG " : "SHORT ") + str.tostring(_entry, format.mintick),
+              style=_isLong ? label.style_label_up : label.style_label_down, color=col, textcolor=color.white, size=size.small)
+
+if longTrig
+    drawLevels(close, close - slMult * atrV, close + t1Mult * atrV, close + t2Mult * atrV, true)
+if shortTrig
+    drawLevels(close, close + slMult * atrV, close - t1Mult * atrV, close - t2Mult * atrV, false)
+
+plotshape(longTrig,  "LONG trigger",  shape.triangleup,   location.belowbar, color.new(color.green, 0), size=size.small)
+plotshape(shortTrig, "SHORT trigger", shape.triangledown, location.abovebar, color.new(color.red, 0),   size=size.small)
+
+// ================= Status table (VWAP/EMA/RSI/daily trend) =================
+var table t = table.new(position.top_right, 2, 5, border_width=1)
+if barstate.islast
+    sideTxt = close > vwapV and ema20 > ema50 ? "LONG bias" : close < vwapV and ema20 < ema50 ? "SHORT bias" : "MIXED"
+    table.cell(t, 0, 0, "Bias",        text_color=color.white, bgcolor=color.new(color.gray, 60))
+    table.cell(t, 1, 0, sideTxt,       text_color = sideTxt == "LONG bias" ? color.lime : sideTxt == "SHORT bias" ? color.red : color.silver)
+    table.cell(t, 0, 1, "Daily trend", text_color=color.white, bgcolor=color.new(color.gray, 60))
+    table.cell(t, 1, 1, dTrend,        text_color = dTrend == "UP" ? color.lime : dTrend == "DOWN" ? color.red : color.silver)
+    table.cell(t, 0, 2, "RSI(14)",     text_color=color.white, bgcolor=color.new(color.gray, 60))
+    table.cell(t, 1, 2, str.tostring(rsiV, "#.0"), text_color = rsiV > 60 ? color.lime : rsiV < 40 ? color.red : color.silver)
+    table.cell(t, 0, 3, "vs VWAP",     text_color=color.white, bgcolor=color.new(color.gray, 60))
+    table.cell(t, 1, 3, str.tostring((close / vwapV - 1) * 100, "#.00") + "%", text_color=color.silver)
+    table.cell(t, 0, 4, "ATR",         text_color=color.white, bgcolor=color.new(color.gray, 60))
+    table.cell(t, 1, 4, str.tostring(atrV, format.mintick), text_color=color.silver)
+
+// ================= Alerts (for webhook back to the bot, later) =================
+alertcondition(longTrig,  "NSE LONG setup",  'LONG {{ticker}} entry {{close}}')
+alertcondition(shortTrig, "NSE SHORT setup", 'SHORT {{ticker}} entry {{close}}')

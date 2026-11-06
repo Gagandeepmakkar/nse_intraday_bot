@@ -1,0 +1,195 @@
+//@version=6
+// NSE Live Trade Assistant v2 — tells you what to do RIGHT NOW with a QUALITY SCORE.
+// Upgraded with ideas from a stronger script: a 0-100 confluence score (only trades
+// score >= threshold), ADX trend-strength filter, VWAP, MACD, relative-volume, and a
+// stop-distance sanity check (rejects too-wide/too-narrow stops). Walks ONE trade:
+//   WAIT -> BUY/SELL NOW (entry/SL/T1/T2) -> HOLDING -> SELL/EXIT when hit.
+// Set a TradingView ALERT to be pinged live. Free NSE data is ~15-min delayed; connect
+// a broker for real-time. Confirmation only; paper-trade first.
+indicator("NSE Live Assistant v2", overlay=true, max_labels_count=100)
+
+// ===== Inputs =====
+stFactor  = input.float(3.0, "Supertrend factor", minval=1, step=0.5, group="Signal")
+stATRp    = input.int(10,  "Supertrend ATR", group="Signal")
+minScore  = input.int(70,  "Minimum signal score (0-100)", minval=50, maxval=100, group="Signal")
+adxMin    = input.float(20, "Minimum ADX (trend strength)", group="Signal")
+rvolMin   = input.float(1.1, "Minimum relative volume", step=0.1, group="Signal")
+useHTF    = input.bool(true, "Use higher-timeframe trend", group="Signal")
+allowShort= input.bool(true, "Allow short trades", group="Signal")
+betterMargin = input.int(10, "While in a trade, flag a NEW setup only if its score beats the open trade by", minval=0, group="Signal")
+autoSwitch   = input.bool(false, "Auto-switch to the stronger setup", group="Signal")
+r1        = input.float(1.5, "Target 1 = risk ×", step=0.5, group="Risk")
+r2        = input.float(3.0, "Target 2 = risk ×", step=0.5, group="Risk")
+minStopATR= input.float(1.0, "Min stop distance (ATR)", step=0.1, group="Risk")
+maxStopATR= input.float(2.5, "Max stop distance (ATR)", step=0.1, group="Risk")
+
+// ===== Indicators =====
+ema20 = ta.ema(close, 20)
+ema50 = ta.ema(close, 50)
+ema200 = ta.ema(close, 200)
+atr    = ta.atr(14)
+rsiV   = ta.rsi(close, 14)
+vwapV  = ta.vwap(hlc3)
+[plusDI, minusDI, adx] = ta.dmi(14, 14)
+[macdL, macdS, macdH] = ta.macd(close, 12, 26, 9)
+avgVol = ta.sma(volume, 20)
+rvol   = not na(avgVol) and avgVol > 0 ? volume / avgVol : 0.0
+[stLine, stDir] = ta.supertrend(stFactor, stATRp)
+plot(ema50,  "EMA50",  color.new(color.orange, 40), 1)
+plot(ema200, "EMA200", color.new(color.gray, 30), 1)
+plot(vwapV,  "VWAP",   color.new(color.blue, 0), 1)
+plot(stLine, "Supertrend", stDir < 0 ? color.new(color.green, 0) : color.new(color.red, 0), 2)
+
+autoHtf = timeframe.isintraday ? "15" : timeframe.period == "D" ? "W" : "M"
+htf20 = request.security(syminfo.tickerid, autoHtf, ta.ema(close, 20)[1], lookahead=barmerge.lookahead_on)
+htf50 = request.security(syminfo.tickerid, autoHtf, ta.ema(close, 50)[1], lookahead=barmerge.lookahead_on)
+htfBull = htf20 > htf50
+htfBear = htf20 < htf50
+
+flipUp = stDir < 0 and stDir[1] >= 0
+flipDn = stDir > 0 and stDir[1] <= 0
+
+// ===== Weighted quality score (0-100) =====
+hiBreak = close > ta.highest(high[1], 10)
+loBreak = close < ta.lowest(low[1], 10)
+longScore = (htfBull ? 15 : 0) + (ema20 > ema50 and ema50 > ema200 ? 15 : 0) + (close > vwapV ? 15 : 0) + (adx >= adxMin and plusDI > minusDI ? 15 : 0) + (rvol >= rvolMin ? 10 : 0) + (rsiV >= 52 and rsiV <= 70 ? 10 : 0) + (macdH > 0 and macdH > macdH[1] ? 10 : 0) + (flipUp or hiBreak ? 10 : 0)
+shortScore = (htfBear ? 15 : 0) + (ema20 < ema50 and ema50 < ema200 ? 15 : 0) + (close < vwapV ? 15 : 0) + (adx >= adxMin and minusDI > plusDI ? 15 : 0) + (rvol >= rvolMin ? 10 : 0) + (rsiV <= 48 and rsiV >= 30 ? 10 : 0) + (macdH < 0 and macdH < macdH[1] ? 10 : 0) + (flipDn or loBreak ? 10 : 0)
+
+// ===== Stop-distance validation + setup =====
+swingLow  = ta.lowest(low[1], 5)
+swingHigh = ta.highest(high[1], 5)
+longStop  = math.min(stLine, swingLow)
+shortStop = math.max(stLine, swingHigh)
+longDist  = close - longStop
+shortDist = shortStop - close
+longStopOK  = longDist  >= atr * minStopATR and longDist  <= atr * maxStopATR
+shortStopOK = shortDist >= atr * minStopATR and shortDist <= atr * maxStopATR
+
+buySetup  = longScore  >= minScore and adx >= adxMin and plusDI > minusDI and (not useHTF or htfBull) and longStopOK
+sellSetup = allowShort and shortScore >= minScore and adx >= adxMin and minusDI > plusDI and (not useHTF or htfBear) and shortStopOK
+
+// ===== Live state machine =====
+var int state = 0
+var float eEntry = na
+var float eStop = na
+var float eT1 = na
+var float eT2 = na
+var int eScore = 0           // score of the currently-open trade
+var bool t1done = false
+bool evBuy = false
+bool evShort = false
+bool evT1 = false
+bool evT2 = false
+bool evStop = false
+bool evBetter = false
+
+// A NEW setup only matters mid-trade if it BEATS the open trade's score by the margin.
+betterBuy  = state != 0 and buySetup  and longScore  >= eScore + betterMargin
+betterSell = state != 0 and sellSetup and shortScore >= eScore + betterMargin
+evBetter := betterBuy or betterSell
+
+// 1) Manage the open trade's exits (stop / T1 breakeven / T2).
+if state == 1
+    if low <= eStop
+        evStop := true
+        state := 0
+    else
+        if not t1done and high >= eT1
+            t1done := true
+            eStop := eEntry   // move stop to breakeven after T1
+            evT1 := true
+        if high >= eT2
+            evT2 := true
+            state := 0
+else if state == -1
+    if high >= eStop
+        evStop := true
+        state := 0
+    else
+        if not t1done and low <= eT1
+            t1done := true
+            eStop := eEntry
+            evT1 := true
+        if low <= eT2
+            evT2 := true
+            state := 0
+
+// 2) Auto-switch: if a stronger setup appeared and we're still in, exit to take it.
+if autoSwitch and evBetter and state != 0
+    state := 0
+
+// 3) Enter when flat (a fresh signal, or right after a switch-exit).
+if state == 0
+    if buySetup
+        state := 1
+        eEntry := close
+        eStop := longStop
+        float risk = eEntry - eStop
+        eT1 := eEntry + r1 * risk
+        eT2 := eEntry + r2 * risk
+        eScore := longScore
+        t1done := false
+        evBuy := true
+    else if sellSetup
+        state := -1
+        eEntry := close
+        eStop := shortStop
+        float risk = eStop - eEntry
+        eT1 := eEntry - r1 * risk
+        eT2 := eEntry - r2 * risk
+        eScore := shortScore
+        t1done := false
+        evShort := true
+
+// ===== Levels + markers =====
+inTrade = state != 0 or evT2 or evStop
+plot(inTrade ? eEntry : na, "Entry", color.new(color.aqua, 0), 2, plot.style_linebr)
+plot(inTrade ? eStop : na,  "Stop",  color.new(color.red, 0), 1, plot.style_linebr)
+plot(inTrade ? eT1 : na,    "T1",    color.new(color.yellow, 0), 1, plot.style_linebr)
+plot(inTrade ? eT2 : na,    "T2",    color.new(color.green, 0), 1, plot.style_linebr)
+plotshape(evBuy,   "BUY NOW",  shape.labelup,   location.belowbar, color.new(color.green, 0), text="BUY",  textcolor=color.white, size=size.normal)
+plotshape(evShort, "SELL NOW", shape.labeldown, location.abovebar, color.new(color.red, 0),   text="SELL", textcolor=color.white, size=size.normal)
+plotshape(evT1,    "T1 hit",   shape.circle,    location.abovebar, color.new(color.yellow, 0), text="T1", size=size.tiny)
+plotshape(evT2,    "T2 hit",   shape.xcross,    location.abovebar, color.new(color.green, 0),  text="T2", size=size.small)
+plotshape(evStop,  "Stop hit", shape.xcross,    location.belowbar, color.new(color.red, 0),    text="SL", size=size.small)
+plotshape(evBetter and not autoSwitch, "Stronger setup", shape.diamond, location.abovebar, color.new(color.fuchsia, 0), text="★ BETTER", textcolor=color.white, size=size.small)
+
+// ===== Dashboard =====
+var table tb = table.new(position.top_right, 2, 6, border_width=1)
+if barstate.islast
+    msg = evBuy ? "🟢 BUY NOW @ " + str.tostring(eEntry, format.mintick) : evShort ? "🔴 SELL NOW @ " + str.tostring(eEntry, format.mintick) : state == 1 ? "HOLDING LONG — SL " + str.tostring(eStop, format.mintick) : state == -1 ? "HOLDING SHORT — SL " + str.tostring(eStop, format.mintick) : "WAIT — no setup"
+    mcol = evBuy ? color.new(color.green, 0) : evShort ? color.new(color.red, 0) : state != 0 ? color.new(color.blue, 20) : color.new(color.gray, 35)
+    table.cell(tb, 0, 0, "NSE Live v2", text_color=color.white, bgcolor=color.new(color.black, 20))
+    table.cell(tb, 1, 0, msg, text_color=color.white, bgcolor=mcol)
+    table.cell(tb, 0, 1, "BUY score",  text_color=color.white, bgcolor=color.new(color.gray, 55))
+    table.cell(tb, 1, 1, str.tostring(longScore) + "/100", text_color = longScore >= minScore ? color.lime : color.silver)
+    table.cell(tb, 0, 2, "SELL score", text_color=color.white, bgcolor=color.new(color.gray, 55))
+    table.cell(tb, 1, 2, str.tostring(shortScore) + "/100", text_color = shortScore >= minScore ? color.red : color.silver)
+    table.cell(tb, 0, 3, "ADX", text_color=color.white, bgcolor=color.new(color.gray, 55))
+    table.cell(tb, 1, 3, str.tostring(adx, "#.0"), text_color = adx >= adxMin ? color.lime : color.silver)
+    table.cell(tb, 0, 4, "RSI / RVOL", text_color=color.white, bgcolor=color.new(color.gray, 55))
+    table.cell(tb, 1, 4, str.tostring(rsiV, "#.0") + " / " + str.tostring(rvol, "#.0") + "x", text_color=color.silver)
+    table.cell(tb, 0, 5, "15m trend", text_color=color.white, bgcolor=color.new(color.gray, 55))
+    table.cell(tb, 1, 5, htfBull ? "UP" : htfBear ? "DOWN" : "FLAT", text_color = htfBull ? color.lime : htfBear ? color.red : color.silver)
+
+// ===== Alerts (with levels in the message) =====
+if evBuy
+    alert("BUY " + syminfo.ticker + " @" + str.tostring(eEntry, format.mintick) + " SL " + str.tostring(eStop, format.mintick) + " T1 " + str.tostring(eT1, format.mintick) + " T2 " + str.tostring(eT2, format.mintick) + " (score " + str.tostring(longScore) + ")", alert.freq_once_per_bar_close)
+if evShort
+    alert("SELL " + syminfo.ticker + " @" + str.tostring(eEntry, format.mintick) + " SL " + str.tostring(eStop, format.mintick) + " T1 " + str.tostring(eT1, format.mintick) + " T2 " + str.tostring(eT2, format.mintick) + " (score " + str.tostring(shortScore) + ")", alert.freq_once_per_bar_close)
+if evT1
+    alert("T1 hit " + syminfo.ticker + " — book half, stop to breakeven", alert.freq_once_per_bar_close)
+if evT2
+    alert("T2 hit " + syminfo.ticker + " — exit", alert.freq_once_per_bar_close)
+if evStop
+    alert("Stop hit " + syminfo.ticker + " — exit", alert.freq_once_per_bar_close)
+if evBetter and not autoSwitch
+    alert("STRONGER setup on " + syminfo.ticker + " (score " + str.tostring(math.max(longScore, shortScore)) + " > open " + str.tostring(eScore) + ") — consider switching", alert.freq_once_per_bar_close)
+alertcondition(evBuy or evShort, "Any entry", "New entry signal")
+alertcondition(evBetter, "Stronger setup", "A stronger setup appeared on {{ticker}}")
+
+
+
+
+
+//in use actual gagan

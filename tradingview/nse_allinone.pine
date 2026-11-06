@@ -1,0 +1,149 @@
+//@version=6
+// NSE All-in-One — Market Structure + Liquidity + FVG + Trend + Momentum.
+// Works on any timeframe (5m intraday → 1W swing). Shows the professional read in
+// layers: swing structure (HH/HL/LH/LL + BOS), liquidity levels (prev day/week high/
+// low), fair-value gaps, EMA trend, Supertrend, VWAP, RSI/MACD — and a clear, scored
+// BUY/SELL signal with entry/stop/T1/T2. Confirmation only; paper-trade first.
+indicator("NSE All-in-One", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500)
+
+// ================= Toggles (turn layers on/off to reduce clutter) =================
+showEMA    = input.bool(true,  "EMA trend (20/50/200)", group="Display")
+showST     = input.bool(true,  "Supertrend",            group="Display")
+showVWAP   = input.bool(true,  "VWAP (intraday)",       group="Display")
+showStruct = input.bool(true,  "Market structure (swings + BOS)", group="Display")
+showLiq    = input.bool(true,  "Liquidity levels (prev D/W high-low)", group="Display")
+showFVG    = input.bool(true,  "Fair-value gaps",       group="Display")
+showSig    = input.bool(true,  "Buy/Sell signals",      group="Display")
+
+pivotLen   = input.int(5, "Swing sensitivity (pivot bars)", minval=2, group="Structure")
+stFactor   = input.float(3.0, "Supertrend factor", group="Trend")
+stATR      = input.int(10, "Supertrend ATR",       group="Trend")
+atrLen     = input.int(14, "ATR length",  group="Risk")
+slMult     = input.float(1.5, "Stop = ATR ×", step=0.1, group="Risk")
+t1Mult     = input.float(1.5, "T1   = ATR ×", step=0.1, group="Risk")
+t2Mult     = input.float(3.0, "T2   = ATR ×", step=0.1, group="Risk")
+
+// ================= Core indicators =================
+ema20 = ta.ema(close, 20)
+ema50 = ta.ema(close, 50)
+ema200 = ta.ema(close, 200)
+atrV  = ta.atr(atrLen)
+rsiV  = ta.rsi(close, 14)
+[macdL, sigL, hist] = ta.macd(close, 12, 26, 9)
+[stLine, stDir] = ta.supertrend(stFactor, stATR)      // stDir: -1 up, +1 down
+isIntraday = timeframe.isintraday
+vwapV = isIntraday ? ta.vwap(hlc3) : na
+
+plot(showEMA ? ema20 : na,  "EMA20",  color.new(color.aqua, 0), 1)
+plot(showEMA ? ema50 : na,  "EMA50",  color.new(color.blue, 0), 1)
+plot(showEMA ? ema200 : na, "EMA200", color.new(color.gray, 0), 2)
+plot(showST ? stLine : na, "Supertrend", stDir < 0 ? color.new(color.green, 0) : color.new(color.red, 0), 2)
+plot(showVWAP and isIntraday ? vwapV : na, "VWAP", color.new(color.orange, 0), 1)
+
+// ================= Higher-timeframe trend (auto step up) =================
+autoHtf = isIntraday ? "D" : timeframe.period == "D" ? "W" : timeframe.period == "W" ? "M" : "D"
+htfE20 = request.security(syminfo.tickerid, autoHtf, ta.ema(close, 20), lookahead=barmerge.lookahead_off)
+htfE50 = request.security(syminfo.tickerid, autoHtf, ta.ema(close, 50), lookahead=barmerge.lookahead_off)
+htfUp   = htfE20 > htfE50
+htfDown = htfE20 < htfE50
+
+// ================= Market structure (swing pivots + BOS) =================
+ph = ta.pivothigh(pivotLen, pivotLen)
+pl = ta.pivotlow(pivotLen, pivotLen)
+var float lastPH = na
+var float prevPH = na
+var float lastPL = na
+var float prevPL = na
+if not na(ph)
+    prevPH := lastPH
+    lastPH := ph
+    if showStruct
+        txt = na(prevPH) or ph > prevPH ? "HH" : "LH"
+        label.new(bar_index - pivotLen, ph, txt, style=label.style_label_down, color=color.new(color.teal, 20), textcolor=color.white, size=size.tiny)
+if not na(pl)
+    prevPL := lastPL
+    lastPL := pl
+    if showStruct
+        txt = na(prevPL) or pl < prevPL ? "LL" : "HL"
+        label.new(bar_index - pivotLen, pl, txt, style=label.style_label_up, color=color.new(color.maroon, 20), textcolor=color.white, size=size.tiny)
+
+// Break of structure: close beyond the last swing (once each)
+var bool bosUp = false
+var bool bosDn = false
+bosUp := not na(lastPH) and close > lastPH
+bosDn := not na(lastPL) and close < lastPL
+
+// ================= Liquidity levels (previous day / week high-low) =================
+pdh = request.security(syminfo.tickerid, "D", high[1], lookahead=barmerge.lookahead_off)
+pdl = request.security(syminfo.tickerid, "D", low[1],  lookahead=barmerge.lookahead_off)
+pwh = request.security(syminfo.tickerid, "W", high[1], lookahead=barmerge.lookahead_off)
+pwl = request.security(syminfo.tickerid, "W", low[1],  lookahead=barmerge.lookahead_off)
+plot(showLiq ? pdh : na, "Prev Day High", color.new(color.red, 40), 1, plot.style_circles)
+plot(showLiq ? pdl : na, "Prev Day Low",  color.new(color.green, 40), 1, plot.style_circles)
+plot(showLiq ? pwh : na, "Prev Wk High",  color.new(color.red, 70), 1)
+plot(showLiq ? pwl : na, "Prev Wk Low",   color.new(color.green, 70), 1)
+
+// ================= Fair-value gaps (3-candle imbalance) =================
+if showFVG
+    if low > high[2]          // bullish gap
+        box.new(bar_index - 2, low, bar_index, high[2], border_color=color.new(color.green, 60), bgcolor=color.new(color.green, 85))
+    if high < low[2]          // bearish gap
+        box.new(bar_index - 2, low[2], bar_index, high, border_color=color.new(color.red, 60), bgcolor=color.new(color.red, 85))
+
+// ================= Scored BUY / SELL signal =================
+bull = (ema20 > ema50 ? 1 : 0) + (close > ema50 ? 1 : 0) + (stDir < 0 ? 1 : 0) + (htfUp ? 1 : 0) + (rsiV > 50 ? 1 : 0) + (hist > 0 ? 1 : 0)
+bear = (ema20 < ema50 ? 1 : 0) + (close < ema50 ? 1 : 0) + (stDir > 0 ? 1 : 0) + (htfDown ? 1 : 0) + (rsiV < 50 ? 1 : 0) + (hist < 0 ? 1 : 0)
+
+// Primary trigger = Supertrend flip in the trend's direction, confirmed by score.
+buyFlip  = stDir < 0 and stDir[1] >= 0 and bull >= 4
+sellFlip = stDir > 0 and stDir[1] <= 0 and bear >= 4
+// Pullback add-on = dip to EMA20 that bounces in an uptrend (buy the dip).
+buyPB  = ema20 > ema50 and htfUp and low <= ema20 * 1.003 and close > open and rsiV > rsiV[1] and rsiV < 60
+sellPB = ema20 < ema50 and htfDown and high >= ema20 * 0.997 and close < open and rsiV < rsiV[1] and rsiV > 40
+
+buySig  = showSig and (buyFlip or buyPB)
+sellSig = showSig and (sellFlip or sellPB)
+
+draw(_e, _sl, _t1, _t2, _long) =>
+    xr = bar_index + 15
+    line.new(bar_index, _e,  xr, _e,  color=color.new(color.aqua, 0), width=2)
+    line.new(bar_index, _sl, xr, _sl, color=color.new(color.red, 0), width=1, style=line.style_dashed)
+    line.new(bar_index, _t1, xr, _t1, color=color.new(color.yellow, 0), width=1, style=line.style_dashed)
+    line.new(bar_index, _t2, xr, _t2, color=color.new(color.green, 0), width=1, style=line.style_dashed)
+    rr = math.round(math.abs(_t1 - _e) / math.abs(_e - _sl), 2)
+    label.new(bar_index, _e, (_long ? "BUY " : "SELL ") + str.tostring(_e, format.mintick) + "  R:R " + str.tostring(rr),
+              style=_long ? label.style_label_up : label.style_label_down,
+              color=_long ? color.green : color.red, textcolor=color.white, size=size.small)
+
+if buySig
+    sl = math.min(math.min(low, low[1]), close - slMult * atrV)
+    draw(close, sl, close + t1Mult * atrV, close + t2Mult * atrV, true)
+if sellSig
+    sl = math.max(math.max(high, high[1]), close + slMult * atrV)
+    draw(close, sl, close - t1Mult * atrV, close - t2Mult * atrV, false)
+
+plotshape(buySig,  "BUY",  shape.triangleup,   location.belowbar, color.new(color.green, 0), size=size.small, text="BUY")
+plotshape(sellSig, "SELL", shape.triangledown, location.abovebar, color.new(color.red, 0),   size=size.small, text="SELL")
+
+// ================= Status table =================
+gcol(c) => c ? color.lime : color.red
+var table tb = table.new(position.top_right, 2, 7, border_width=1)
+if barstate.islast
+    table.cell(tb, 0, 0, "Bias ("+timeframe.period+")", text_color=color.white, bgcolor=color.new(color.gray, 55))
+    table.cell(tb, 1, 0, bull > bear ? "BULLISH "+str.tostring(bull)+"/6" : bear > bull ? "BEARISH "+str.tostring(bear)+"/6" : "MIXED", text_color = bull > bear ? color.lime : bear > bull ? color.red : color.silver)
+    table.cell(tb, 0, 1, "Higher TF ("+autoHtf+")", text_color=color.white, bgcolor=color.new(color.gray, 55))
+    table.cell(tb, 1, 1, htfUp ? "UP" : htfDown ? "DOWN" : "FLAT", text_color = htfUp ? color.lime : color.red)
+    table.cell(tb, 0, 2, "Supertrend", text_color=color.white, bgcolor=color.new(color.gray, 55))
+    table.cell(tb, 1, 2, stDir < 0 ? "BULL" : "BEAR", text_color = gcol(stDir < 0))
+    table.cell(tb, 0, 3, "Structure", text_color=color.white, bgcolor=color.new(color.gray, 55))
+    table.cell(tb, 1, 3, bosUp ? "broke up" : bosDn ? "broke down" : "inside", text_color = bosUp ? color.lime : bosDn ? color.red : color.silver)
+    table.cell(tb, 0, 4, "RSI(14)", text_color=color.white, bgcolor=color.new(color.gray, 55))
+    table.cell(tb, 1, 4, str.tostring(rsiV, "#.0"), text_color = rsiV > 60 ? color.lime : rsiV < 40 ? color.red : color.silver)
+    table.cell(tb, 0, 5, "MACD", text_color=color.white, bgcolor=color.new(color.gray, 55))
+    table.cell(tb, 1, 5, hist > 0 ? "rising" : "falling", text_color = gcol(hist > 0))
+    table.cell(tb, 0, 6, "SIGNAL", text_color=color.white, bgcolor=color.new(color.gray, 40))
+    table.cell(tb, 1, 6, buySig ? "BUY" : sellSig ? "SELL" : "wait", text_color = buySig ? color.lime : sellSig ? color.red : color.silver)
+
+// ================= Alerts =================
+alertcondition(buySig,  "BUY signal",  'BUY {{ticker}} {{interval}} at {{close}}')
+alertcondition(sellSig, "SELL signal", 'SELL {{ticker}} {{interval}} at {{close}}')

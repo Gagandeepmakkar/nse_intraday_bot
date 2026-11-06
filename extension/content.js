@@ -1,173 +1,186 @@
-/* Groww overlay: "Analyze this stock" button → reads the stock you're viewing off
- * the page, then runs the DEEP PYTHON backend (multi-timeframe indicators + a live
- * mini-backtest of the setup on THIS stock) and shows a verdict WITH evidence +
- * exact levels on a live chart. Takes a few seconds because it's doing real work.
- * Confirmation only — trade manually. Needs the local backend: `./run.sh serve`.
- *
- * Symbol detection (no pixel scraping): Groww's embedded Next.js JSON, then a visible
- * "NSE: TICKER", then a bot pick seen on the page. Else type it. */
+// NSE Groww Live — v1.0 live trade assistant.
+// Reads Groww's OWN real-time candles (captured by inject_hook.js), runs the scored
+// strategy, and walks ONE trade through its life with a desktop notification + sound
+// at each step: WAIT -> BUY/SELL NOW -> HOLDING (breakeven after T1) -> EXIT (T1/T2/SL).
+// Flags a "stronger setup" mid-trade. Shows a mini live chart with the levels drawn.
+// Confirmation only; paper-trade first. Data rides your Groww session (no token stored).
 (function () {
   "use strict";
   if (window.__nlcLoaded) return;
   window.__nlcLoaded = true;
 
   const IST = 19800;
-  const state = { symbol: "", picks: [], chart: null, series: null, lines: [], timer: null };
-
-  function ask(type, extra) {
-    return new Promise(res => {
-      try { chrome.runtime.sendMessage(Object.assign({ type }, extra), r => res(r || { ok: false })); }
-      catch (e) { res({ ok: false, error: String(e) }); }
-    });
-  }
-  const el = (tag, attrs, html) => {
-    const e = document.createElement(tag);
-    if (attrs) for (const k in attrs) e.setAttribute(k, attrs[k]);
-    if (html != null) e.innerHTML = html;
-    return e;
+  const BETTER_MARGIN = 10;
+  const S = {
+    url: "", auth: "", symbol: "",
+    phase: 0, entry: 0, stop: 0, t1: 0, t2: 0, t1done: false, eScore: 0,
+    chart: null, series: null, lines: [], lastBetterAt: 0
   };
-  const $ = id => document.getElementById(id);
 
-  function detectSymbol() {
-    const nd = $("__NEXT_DATA__");
-    if (nd && nd.textContent) {
-      const m = nd.textContent.match(/"(?:nseScriptCode|nse_scrip_code|nseSymbol|growwContractId)"\s*:\s*"([A-Z0-9&]{2,20})"/);
-      if (m) return m[1];
+  window.addEventListener("message", (e) => {
+    const d = e.data;
+    if (d && d.__nlcGroww && d.url && d.url.indexOf("charting_service") !== -1) {
+      S.url = d.url;
+      if (d.auth) S.auth = d.auth;
+      const m = d.url.match(/\/CASH\/([^/]+)\/daily/);
+      if (m && m[1] !== S.symbol) { S.symbol = m[1]; reset(); }  // new stock -> reset trade
     }
-    const body = document.body.innerText || "";
-    const m2 = body.match(/\bNSE\b[\s:·|\-]+([A-Z][A-Z0-9&]{1,19})\b/);
-    if (m2) return m2[1];
-    for (const p of state.picks) {
-      const s = (p.symbol || "").toUpperCase();
-      if (s && new RegExp("\\b" + s + "\\b").test(body.toUpperCase())) return s;
-    }
-    return "";
+  });
+
+  function reset() { S.phase = 0; S.t1done = false; S.eScore = 0; }
+
+  // ---- notifications + sound ----
+  function notify(title, body) {
+    try { if (window.Notification && Notification.permission === "granted") new Notification(title, { body, silent: false }); } catch (e) {}
+    beep();
+  }
+  function beep() {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.connect(g); g.connect(ctx.destination); o.type = "sine"; o.frequency.value = 880; g.gain.value = 0.08;
+      o.start(); setTimeout(() => { o.stop(); ctx.close(); }, 180);
+    } catch (e) {}
   }
 
+  const $ = (id) => document.getElementById(id);
   function build() {
-    const p = el("div", { id: "nse-live-confirm" });
+    const p = document.createElement("div");
+    p.id = "nse-live-confirm";
     p.innerHTML =
-      '<div id="nlc-head"><span class="t">Live Confirm</span><span class="s" id="nlc-status">ready</span>' +
-      '<span id="nlc-min" title="minimize">—</span></div>' +
+      '<div id="nlc-head"><span class="t">Groww Live ⚡</span><span class="s" id="nlc-status">…</span><span id="nlc-min" title="minimize">—</span></div>' +
       '<div id="nlc-body">' +
-      '<button id="nlc-analyze" style="width:100%;padding:9px;margin-bottom:9px;background:#38bdf8;border:0;border-radius:8px;color:#06222e;font-weight:800;font-size:13px;cursor:pointer">📈 Analyze this stock</button>' +
-      '<div class="nlc-row"><input id="nlc-sym" placeholder="or type a symbol"><button id="nlc-go">Set</button></div>' +
-      '<div id="nlc-verdict"><span id="nlc-action" class="HOLD">—</span>' +
-      '<span id="nlc-conf"></span><span id="nlc-botside"></span></div>' +
-      '<div id="nlc-levels"></div><div id="nlc-chart"></div><div id="nlc-evidence"></div>' +
-      '<div id="nlc-foot">Deep backend analysis (multi-timeframe + recent-setup backtest). NOT advice. Execute manually.</div>' +
+      '<div id="nlc-state"><span id="nlc-action" class="WAIT">—</span><span id="nlc-score">—</span></div>' +
+      '<button id="nlc-alert">🔔 Enable alerts</button>' +
+      '<div id="nlc-sub"></div>' +
+      '<div id="nlc-better"></div>' +
+      '<div id="nlc-levels"></div>' +
+      '<div id="nlc-chart"></div>' +
+      '<div id="nlc-ev"></div>' +
+      '<div id="nlc-foot">Real-time via your Groww session · scored strategy · NOT advice — execute manually.</div>' +
       '</div>';
     document.body.appendChild(p);
     $("nlc-min").onclick = () => p.classList.toggle("min");
-    $("nlc-analyze").onclick = analyzeThisPage;
-    $("nlc-go").onclick = () => { const v = $("nlc-sym").value.trim().toUpperCase(); if (v) run(v); };
-    dragify(p, $("nlc-head"));
-  }
-
-  function dragify(box, handle) {
-    let sx, sy, ox, oy, drag = false;
-    handle.addEventListener("mousedown", e => {
-      if (e.target.id === "nlc-min") return;
-      drag = true; sx = e.clientX; sy = e.clientY;
-      const r = box.getBoundingClientRect(); ox = r.left; oy = r.top; e.preventDefault();
-    });
-    document.addEventListener("mousemove", e => {
-      if (!drag) return;
-      box.style.left = (ox + e.clientX - sx) + "px"; box.style.top = (oy + e.clientY - sy) + "px"; box.style.right = "auto";
-    });
+    const ab = $("nlc-alert");
+    if (window.Notification && Notification.permission === "granted") ab.style.display = "none";
+    ab.onclick = () => { try { Notification.requestPermission().then((r) => { if (r === "granted") { ab.style.display = "none"; notify("Alerts on", "You'll be pinged on BUY/SELL/targets."); } }); } catch (e) {} };
+    const h = $("nlc-head"); let sx, sy, ox, oy, drag = false;
+    h.addEventListener("mousedown", (e) => { if (e.target.id === "nlc-min") return; drag = true; sx = e.clientX; sy = e.clientY; const r = p.getBoundingClientRect(); ox = r.left; oy = r.top; e.preventDefault(); });
+    document.addEventListener("mousemove", (e) => { if (!drag) return; p.style.left = (ox + e.clientX - sx) + "px"; p.style.top = (oy + e.clientY - sy) + "px"; p.style.right = "auto"; });
     document.addEventListener("mouseup", () => { drag = false; });
+    S.chart = null;  // chart belongs to the old (removed) node
   }
+  function ensurePanel() { if (!document.getElementById("nse-live-confirm")) build(); }
 
   function ensureChart() {
-    if (state.chart) return;
-    const div = $("nlc-chart");
-    state.chart = LightweightCharts.createChart(div, {
-      height: 170, width: div.clientWidth,
-      layout: { background: { color: "transparent" }, textColor: "#9aa4b2" },
-      grid: { vertLines: { color: "#1b232e" }, horzLines: { color: "#1b232e" } },
-      timeScale: { timeVisible: true, secondsVisible: false, borderColor: "#273040" },
-      rightPriceScale: { borderColor: "#273040" }
+    if (S.chart || !window.LightweightCharts) return;
+    const div = $("nlc-chart"); if (!div) return;
+    S.chart = LightweightCharts.createChart(div, {
+      height: 180, width: div.clientWidth,
+      layout: { background: { color: "transparent" }, textColor: "#8a94a2" },
+      grid: { vertLines: { color: "#161d27" }, horzLines: { color: "#161d27" } },
+      timeScale: { timeVisible: true, secondsVisible: false, borderColor: "#1e2733" },
+      rightPriceScale: { borderColor: "#1e2733" }
     });
-    state.series = state.chart.addCandlestickSeries({
-      upColor: "#2ecc71", downColor: "#e74c3c", borderVisible: false,
-      wickUpColor: "#2ecc71", wickDownColor: "#e74c3c"
-    });
+    S.series = S.chart.addCandlestickSeries({ upColor: "#22d36f", downColor: "#ff5c6c", borderVisible: false, wickUpColor: "#22d36f", wickDownColor: "#ff5c6c" });
+  }
+  function drawLevels() {
+    if (!S.series) return;
+    S.lines.forEach((l) => S.series.removePriceLine(l)); S.lines = [];
+    if (S.phase === 0) return;
+    const add = (price, color, title) => { if (price) S.lines.push(S.series.createPriceLine({ price, color, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title })); };
+    add(S.entry, "#38bdf8", "Entry"); add(S.stop, "#ff5c6c", "SL"); add(S.t1, "#ffd23f", "T1"); add(S.t2, "#22d36f", "T2");
   }
 
-  function drawLevels(L) {
-    state.lines.forEach(l => state.series.removePriceLine(l));
-    state.lines = [];
-    if (!L) return;
-    const add = (price, color, title) => { if (price) state.lines.push(
-      state.series.createPriceLine({ price, color, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title })); };
-    add(L.entry, "#38bdf8", "Entry"); add(L.stop, "#f87171", "SL");
-    add(L.target1, "#fbbf24", "T1"); add(L.target2, "#4ade80", "T2");
+  async function fetchCandles() {
+    let url = S.url.replace("minimal=true", "minimal=false");
+    if (url.indexOf("minimal=") === -1) url += (url.indexOf("?") === -1 ? "?" : "&") + "minimal=false";
+    const headers = { "Accept": "application/json" };
+    if (S.auth) { headers["Authorization"] = S.auth; headers["X-APP-ID"] = "growwWeb"; headers["x-platform"] = "web"; }
+    const r = await fetch(url, { headers, credentials: "include" });
+    if (!r.ok) throw new Error("Groww " + r.status);
+    const j = await r.json();
+    return (j.candles || []).map((a) => ({ t: a[0], o: a[1], h: a[2], l: a[3], c: a[4], v: a[5] }));
   }
 
-  const botSide = symbol => {
-    const m = state.picks.find(p => (p.symbol || "").toUpperCase() === symbol);
-    return m ? (m.side || "") : "";
-  };
-
-  function analyzeThisPage() {
-    const sym = detectSymbol();
-    if (!sym) { $("nlc-status").textContent = "couldn't read symbol — type it below"; return; }
-    $("nlc-sym").value = sym;
-    run(sym);
+  // One-trade state machine on live candles.
+  function machine(candles, d) {
+    const last = candles[candles.length - 1];
+    const hi = last.h, lo = last.l;
+    if (S.phase === 0) {
+      if (d.levels && (d.action === "BUY" || d.action === "SELL")) {
+        S.phase = d.action === "BUY" ? 1 : -1;
+        S.entry = d.levels.entry; S.stop = d.levels.stop; S.t1 = d.levels.target1; S.t2 = d.levels.target2;
+        S.t1done = false; S.eScore = d.score;
+        notify((d.action === "BUY" ? "🟢 BUY " : "🔴 SELL ") + S.symbol, "@" + S.entry.toFixed(2) + "  SL " + S.stop.toFixed(2) + "  T1 " + S.t1.toFixed(2) + "  T2 " + S.t2.toFixed(2) + "  (score " + S.score + ")");
+      }
+    } else if (S.phase === 1) {
+      if (lo <= S.stop) { notify("⛔ STOP " + S.symbol, "Exit — stop hit"); reset(); }
+      else {
+        if (!S.t1done && hi >= S.t1) { S.t1done = true; S.stop = S.entry; notify("🎯 T1 " + S.symbol, "Book half, stop to breakeven"); }
+        if (hi >= S.t2) { notify("✅ T2 " + S.symbol, "Exit the rest — target 2 hit"); reset(); }
+      }
+    } else if (S.phase === -1) {
+      if (hi >= S.stop) { notify("⛔ STOP " + S.symbol, "Exit — stop hit"); reset(); }
+      else {
+        if (!S.t1done && lo <= S.t1) { S.t1done = true; S.stop = S.entry; notify("🎯 T1 " + S.symbol, "Book half, stop to breakeven"); }
+        if (lo <= S.t2) { notify("✅ T2 " + S.symbol, "Exit the rest — target 2 hit"); reset(); }
+      }
+    }
+    // stronger-setup flag while in a trade
+    const better = S.phase !== 0 && (d.action === "BUY" || d.action === "SELL") && d.score >= S.eScore + BETTER_MARGIN;
+    const el = $("nlc-better");
+    if (el) {
+      if (better) { el.textContent = "★ Stronger setup: " + d.action + " score " + d.score + " (open " + S.eScore + ") — consider switching"; el.classList.add("show"); if (Date.now() - S.lastBetterAt > 60000) { S.lastBetterAt = Date.now(); notify("★ Stronger setup " + S.symbol, d.action + " score " + d.score + " > open " + S.eScore); } }
+      else el.classList.remove("show");
+    }
   }
 
-  function run(symbol) {
-    state.symbol = symbol;
-    if (state.timer) clearInterval(state.timer);
-    refresh();
-    state.timer = setInterval(refresh, 60000);  // deep analysis is heavy; refresh each minute
+  function render(candles, d) {
+    const act = $("nlc-action");
+    const label = S.phase === 1 ? "HOLDING LONG" : S.phase === -1 ? "HOLDING SHORT" : d.action === "BUY" ? "BUY NOW" : d.action === "SELL" ? "SELL NOW" : d.action === "HOLD" ? "HOLD" : "WAIT";
+    act.className = S.phase === 1 ? "LONG" : S.phase === -1 ? "SHORT" : d.action || "WAIT";
+    act.textContent = label;
+    const sc = $("nlc-score"); sc.textContent = "score " + (d.score != null ? d.score : "–"); sc.className = (d.score >= 70 ? "hi" : "");
+    $("nlc-sub").textContent = S.phase !== 0 ? ("entered @ " + S.entry.toFixed(2) + " · score was " + S.eScore + (S.t1done ? " · T1 booked, stop at breakeven" : ""))
+      : d.action === "HOLD" ? ("in trend — waiting for score ≥ 70 + ADX ≥ 20") : ("no clean setup · trend " + d.trend);
+    $("nlc-levels").innerHTML = S.phase !== 0 ? [
+      ["Entry", S.entry, "en"], ["SL", S.stop, "sl"], ["T1", S.t1, "t1"], ["T2", S.t2, "t2"]
+    ].map(([k, v, c]) => `<div class="nlc-lv ${c}"><div class="k">${k}</div><div class="v">₹${Number(v).toFixed(2)}</div></div>`).join("")
+      : (d.levels ? [["Entry", d.levels.entry, "en"], ["SL", d.levels.stop, "sl"], ["T1", d.levels.target1, "t1"], ["T2", d.levels.target2, "t2"]]
+        .map(([k, v, c]) => `<div class="nlc-lv ${c}"><div class="k">${k}</div><div class="v">₹${Number(v).toFixed(2)}</div></div>`).join("")
+        : `<div class="nlc-lv" style="grid-column:1/-1"><div class="k">No trade</div><div class="v">₹${d.price != null ? d.price : "?"}</div></div>`);
+    $("nlc-ev").innerHTML = `<b>BUY</b> ${d.longScore != null ? d.longScore : "?"} · <b>SELL</b> ${d.shortScore != null ? d.shortScore : "?"} · ADX <b>${d.adx != null ? d.adx : "?"}</b> · RVOL ${d.rvol != null ? d.rvol : "?"}x · RSI ${d.rsi != null ? d.rsi : "?"}`;
+    // chart
+    ensureChart();
+    if (S.series && candles.length) {
+      S.series.setData(candles.map((c) => ({ time: c.t + IST, open: c.o, high: c.h, low: c.l, close: c.c })));
+      drawLevels(); S.chart.timeScale().fitContent();
+    }
+    const now = new Date();
+    $("nlc-status").textContent = S.symbol + " · " + String(now.getHours()).padStart(2, "0") + ":" + String(now.getMinutes()).padStart(2, "0");
   }
 
   async function refresh() {
-    if (!state.symbol) return;
-    const sym = state.symbol;
-    $("nlc-status").textContent = sym + " · analyzing (deep, ~5-15s)…";
-    // Chart first (fast), so you see the candles while the backend thinks.
-    const cr = await ask("candles", { symbol: sym });
-    if (cr.ok && cr.candles && cr.candles.length) {
-      ensureChart();
-      state.series.setData(cr.candles.map(c => ({ time: c.t + IST, open: c.o, high: c.h, low: c.l, close: c.c })));
-      state.chart.timeScale().fitContent();
-    }
-    // Deep backend verdict.
-    const ar = await ask("analyze", { symbol: sym, side: botSide(sym) });
-    if (!ar.ok) { $("nlc-status").textContent = "backend offline — run `./run.sh serve` (" + (ar.error || "") + ")"; return; }
-    renderDeep(ar.result);
+    ensurePanel();
+    if (!S.url) { const s = $("nlc-status"); if (s) s.textContent = "open a Groww stock chart…"; return; }
+    try {
+      const candles = await fetchCandles();
+      if (!candles.length) { $("nlc-status").textContent = "no live data…"; return; }
+      const d = Algos.swingDecide(candles);
+      S.score = d.score;
+      machine(candles, d);
+      render(candles, d);
+    } catch (err) { const s = $("nlc-status"); if (s) s.textContent = "err: " + err.message; }
   }
 
-  function renderDeep(r) {
-    const e = r.evidence || {};
-    const bt = e.setup_backtest || {};
-    const act = $("nlc-action");
-    act.className = r.action || "WAIT"; act.textContent = r.action || "WAIT";
-    $("nlc-conf").textContent = r.confidence ? r.confidence + "% confidence" : "";
-    $("nlc-botside").textContent = r.side ? (botSide(r.symbol) ? "bot pick: " + r.side : "side: " + r.side) : "";
-    if (state.series) drawLevels(r.levels);
-    $("nlc-levels").innerHTML = r.levels ? [
-      ["Entry", r.levels.entry], ["SL", r.levels.stop], ["T1", r.levels.target1], ["T2", r.levels.target2]
-    ].map(([k, v]) => `<div class="nlc-lv"><div class="k">${k}</div><div class="v">₹${Number(v).toFixed(2)}</div></div>`).join("")
-      : '<div class="nlc-lv" style="grid-column:1/-1"><div class="k">No trade</div><div class="v">' + (r.error ? r.error : "setup has no recent edge — hold") + '</div></div>';
-    const warn = (bt.expectancy_rs_per_10qty != null && bt.expectancy_rs_per_10qty <= 0) ? " ⚠" : "";
-    $("nlc-evidence").innerHTML =
-      `<div class="nlc-ev"><b>5m</b> ${e.intraday_trend_5m || "?"} · <b>Daily</b> ${e.daily_trend || "?"} · <b>RSI</b> ${e.rsi != null ? e.rsi : "?"}</div>` +
-      (bt.sessions ? `<div class="nlc-ev">Recent setup on this stock: <b>${bt.sessions}</b> sessions, <b>${bt.win_rate_pct}%</b> win, expectancy <b>₹${bt.expectancy_rs_per_10qty}</b>${warn}</div>` : "") +
-      (e.checks_passed ? `<div class="nlc-ev">Confluence checks passed: <b>${e.checks_passed}</b></div>` : "");
-    const now = new Date();
-    $("nlc-status").textContent = r.symbol + " · " + String(now.getHours()).padStart(2, "0") + ":" + String(now.getMinutes()).padStart(2, "0");
-  }
-
-  async function init() {
+  function init() {
     build();
-    const pr = await ask("picks");
-    state.picks = (pr && pr.ok && pr.picks) ? pr.picks : [];
-    window.addEventListener("resize", () => state.chart && state.chart.applyOptions({ width: $("nlc-chart").clientWidth }));
+    setInterval(refresh, 10000);
+    setInterval(ensurePanel, 3000);
+    setTimeout(refresh, 2500);
+    window.addEventListener("resize", () => { if (S.chart && $("nlc-chart")) S.chart.applyOptions({ width: $("nlc-chart").clientWidth }); });
   }
-
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
   else init();
 })();

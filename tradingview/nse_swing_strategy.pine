@@ -1,0 +1,69 @@
+//@version=6
+// NSE Swing STRATEGY — complete round-trip trades (each BUY connected to its SELL).
+// Core edge = a Supertrend flip IN THE DIRECTION of the bigger trend (price above/below
+// the 200-EMA + higher timeframe agrees). Exit = a trailing Supertrend stop or the
+// target. One position at a time, filtered by trend, so you get a FEW clean trades per
+// chart — not a stream. Raise "Swing size" for fewer, bigger trades. Open the
+// "Strategy Tester" tab to see every trade + whether it made money. Testing tool only.
+strategy("NSE Swing Strategy", overlay=true, pyramiding=0, initial_capital=100000,
+         default_qty_type=strategy.percent_of_equity, default_qty_value=20,
+         commission_type=strategy.commission.percent, commission_value=0.1,
+         max_lines_count=60, max_labels_count=60)
+
+// ===== Inputs =====
+stFactor  = input.float(3.0, "Swing size (higher = fewer, bigger trades)", minval=1, step=0.5, group="Signal")
+stATRp    = input.int(10,  "Supertrend ATR",   group="Signal")
+useHTF    = input.bool(true, "Only trade with the higher timeframe", group="Signal")
+useReg    = input.bool(true, "Only trade with the 200-EMA regime", group="Signal")
+allowShort= input.bool(true, "Allow short trades", group="Signal")
+r2        = input.float(3.0, "Target = risk ×", step=0.5, group="Risk")
+
+// ===== Indicators (clean) =====
+ema50  = ta.ema(close, 50)
+ema200 = ta.ema(close, 200)
+rsiV = ta.rsi(close, 14)                            // momentum confirmation (research-backed)
+[stLine, stDir] = ta.supertrend(stFactor, stATRp)   // stDir: -1 up, +1 down
+plot(ema50,  "EMA50",  color.new(color.orange, 0), 1)
+plot(ema200, "EMA200", color.new(color.gray, 20), 2)
+plot(stLine, "Supertrend", stDir < 0 ? color.new(color.green, 0) : color.new(color.red, 0), 2)
+
+// ===== Higher-timeframe trend filter =====
+autoHtf = timeframe.isintraday ? "D" : timeframe.period == "D" ? "W" : "M"
+htfE20 = request.security(syminfo.tickerid, autoHtf, ta.ema(close, 20), lookahead=barmerge.lookahead_off)
+htfE50 = request.security(syminfo.tickerid, autoHtf, ta.ema(close, 50), lookahead=barmerge.lookahead_off)
+htfUp   = htfE20 > htfE50
+htfDown = htfE20 < htfE50
+
+// ===== Entries: Supertrend flip, in the direction of the bigger trend =====
+flipUp = stDir < 0 and stDir[1] >= 0
+flipDn = stDir > 0 and stDir[1] <= 0
+longOK  = (not useReg or close > ema200) and (not useHTF or htfUp) and rsiV > 55
+shortOK = (not useReg or close < ema200) and (not useHTF or htfDown) and rsiV < 45
+
+var float tgt = na
+if flipUp and longOK and strategy.position_size <= 0
+    strategy.entry("Long", strategy.long)
+    tgt := close + r2 * (close - stLine)
+if allowShort and flipDn and shortOK and strategy.position_size >= 0
+    strategy.entry("Short", strategy.short)
+    tgt := close - r2 * (stLine - close)
+
+// ===== Exits: trailing Supertrend stop OR the target =====
+if strategy.position_size > 0
+    strategy.exit("Sell", "Long", stop=stLine, limit=tgt)
+if strategy.position_size < 0
+    strategy.exit("Cover", "Short", stop=stLine, limit=tgt)
+
+// ===== Status table =====
+col(c) => c ? color.lime : color.red
+var table tb = table.new(position.top_right, 2, 4, border_width=1)
+if barstate.islast
+    pos = strategy.position_size > 0 ? "LONG open" : strategy.position_size < 0 ? "SHORT open" : "flat"
+    table.cell(tb, 0, 0, "Supertrend ("+timeframe.period+")", text_color=color.white, bgcolor=color.new(color.gray, 55))
+    table.cell(tb, 1, 0, stDir < 0 ? "BULL" : "BEAR", text_color = col(stDir < 0))
+    table.cell(tb, 0, 1, "Higher TF ("+autoHtf+")", text_color=color.white, bgcolor=color.new(color.gray, 55))
+    table.cell(tb, 1, 1, htfUp ? "UP" : htfDown ? "DOWN" : "FLAT", text_color = col(htfUp))
+    table.cell(tb, 0, 2, "200-EMA regime", text_color=color.white, bgcolor=color.new(color.gray, 55))
+    table.cell(tb, 1, 2, close > ema200 ? "above (bullish)" : "below (bearish)", text_color = col(close > ema200))
+    table.cell(tb, 0, 3, "Position", text_color=color.white, bgcolor=color.new(color.gray, 40))
+    table.cell(tb, 1, 3, pos, text_color = strategy.position_size > 0 ? color.lime : strategy.position_size < 0 ? color.red : color.silver)
