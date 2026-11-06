@@ -142,6 +142,7 @@ if state == 1
             evStopBE := true
             dayR := dayR + 0.5 * r1          // half booked at T1, half flat at breakeven
             dayBE := dayBE + 1
+            dayWins := dayWins + 1            // nets positive (+0.5*r1) -> counts as a win
         else
             evStopLoss := true
             dayR := dayR - 1.0
@@ -166,6 +167,7 @@ else if state == -1
             evStopBE := true
             dayR := dayR + 0.5 * r1
             dayBE := dayBE + 1
+            dayWins := dayWins + 1            // nets positive (+0.5*r1) -> counts as a win
         else
             evStopLoss := true
             dayR := dayR - 1.0
@@ -252,7 +254,7 @@ liveTotalR = dayR + (na(floatR) ? 0.0 : floatR)
 // ===== Dashboard =====
 var table tb = table.new(position.top_right, 2, 10, border_width=1)
 if barstate.islast
-    msg = evBuy ? "🟢 BUY NOW @ " + str.tostring(eEntry, format.mintick) : evShort ? "🔴 SELL NOW @ " + str.tostring(eEntry, format.mintick) : evStopLoss ? "🔴 STOPPED OUT — loss" : evStopBE ? "⚪ EXITED AT BREAKEVEN — no loss" : evT2 ? "🟢 TARGET 2 HIT — full win" : state == 1 ? "HOLDING LONG — SL " + str.tostring(eStop, format.mintick) : state == -1 ? "HOLDING SHORT — SL " + str.tostring(eStop, format.mintick) : "WAIT — no setup"
+    msg = evBuy ? "🟢 BUY NOW @ " + str.tostring(eEntry, format.mintick) : evShort ? "🔴 SELL NOW @ " + str.tostring(eEntry, format.mintick) : evStopLoss ? "🔴 STOPPED OUT — loss" : evStopBE ? "🟢 PARTIAL WIN — T1 booked, runner flat" : evT2 ? "🟢 TARGET 2 HIT — full win" : state == 1 ? "HOLDING LONG — SL " + str.tostring(eStop, format.mintick) : state == -1 ? "HOLDING SHORT — SL " + str.tostring(eStop, format.mintick) : "WAIT — no setup"
     mcol = evBuy ? color.new(color.green, 0) : evShort ? color.new(color.red, 0) : state != 0 ? color.new(color.blue, 20) : color.new(color.gray, 35)
     table.cell(tb, 0, 0, "MCX Live", text_color=color.white, bgcolor=color.new(color.black, 20))
     table.cell(tb, 1, 0, msg, text_color=color.white, bgcolor=mcol)
@@ -272,8 +274,8 @@ if barstate.islast
     table.cell(tb, 1, 7, na(floatR) ? "flat" : str.tostring(floatR, "#.00") + "R", text_color = na(floatR) ? color.silver : floatR > 0 ? color.lime : color.red)
     table.cell(tb, 0, 8, "LIVE total (R)", text_color=color.white, bgcolor=color.new(color.gray, 40))
     table.cell(tb, 1, 8, str.tostring(liveTotalR, "#.00") + "R", text_color = liveTotalR > 0 ? color.lime : liveTotalR < 0 ? color.red : color.silver, bgcolor=color.new(color.gray, 40))
-    table.cell(tb, 0, 9, "Trades (W/L/BE)", text_color=color.white, bgcolor=color.new(color.gray, 55))
-    table.cell(tb, 1, 9, str.tostring(dayTrades) + " (" + str.tostring(dayWins) + "/" + str.tostring(dayLosses) + "/" + str.tostring(dayBE) + ")", text_color=color.silver)
+    table.cell(tb, 0, 9, "Trades (Win/Loss)", text_color=color.white, bgcolor=color.new(color.gray, 55))
+    table.cell(tb, 1, 9, str.tostring(dayTrades) + " (" + str.tostring(dayWins) + "/" + str.tostring(dayLosses) + ") — " + str.tostring(dayBE) + " partial (T1 only)", text_color=color.silver)
 
 // ===== Alerts (with levels in the message) =====
 if evBuy
@@ -287,7 +289,7 @@ if evT2
 if evStopLoss
     alert("Stop hit (LOSS) " + syminfo.ticker + " — exit", alert.freq_once_per_bar_close)
 if evStopBE
-    alert("Stop hit (breakeven, no loss) " + syminfo.ticker + " — exit", alert.freq_once_per_bar_close)
+    alert("Partial win (T1 booked, runner flat) " + syminfo.ticker + " — exit", alert.freq_once_per_bar_close)
 if evBetter and not autoSwitch
     alert("STRONGER " + (betterBuy ? "BUY" : "SELL") + " on " + syminfo.ticker + " score " + str.tostring(math.max(longScore, shortScore)) + " > open " + str.tostring(eScore) + " — alt entry " + str.tostring(altEntry, format.mintick) + " SL " + str.tostring(altStop, format.mintick) + " T1 " + str.tostring(altT1, format.mintick) + " T2 " + str.tostring(altT2, format.mintick), alert.freq_once_per_bar_close)
 alertcondition(evBuy or evShort, "Any entry", "New entry signal")
