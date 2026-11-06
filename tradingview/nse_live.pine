@@ -90,6 +90,25 @@ betterBuy  = state != 0 and buySetup  and longScore  >= eScore + betterMargin
 betterSell = state != 0 and sellSetup and shortScore >= eScore + betterMargin
 evBetter := betterBuy or betterSell
 
+// The ALTERNATIVE setup's own entry/stop/targets (computed the same way a real entry
+// would be), so you can see and act on it even while another trade is open.
+float altEntry = na
+float altStop = na
+float altT1 = na
+float altT2 = na
+if betterBuy
+    altEntry := close
+    altStop := longStop
+    float altRisk = altEntry - altStop
+    altT1 := altEntry + r1 * altRisk
+    altT2 := altEntry + r2 * altRisk
+else if betterSell
+    altEntry := close
+    altStop := shortStop
+    float altRisk = altStop - altEntry
+    altT1 := altEntry - r1 * altRisk
+    altT2 := altEntry - r2 * altRisk
+
 // 1) Manage the open trade's exits (stop / T1 breakeven / T2).
 if state == 1
     if low <= eStop
@@ -165,6 +184,16 @@ plotshape(evStopLoss, "Stop hit (loss)",      shape.xcross, location.belowbar, c
 plotshape(evStopBE,   "Stop hit (breakeven)", shape.xcross, location.belowbar, color.new(color.gray, 0),   text="BE",   size=size.small)
 plotshape(evBetter and not autoSwitch, "Stronger setup", shape.diamond, location.abovebar, color.new(color.fuchsia, 0), text="★ BETTER", textcolor=color.white, size=size.small)
 
+// Alternative (★ BETTER) setup's own levels — magenta, dotted, separate from the open
+// trade's lines above — so you can see and act on it without closing the current trade.
+showAlt = betterBuy or betterSell
+plot(showAlt ? altEntry : na, "Alt Entry", color.new(color.fuchsia, 0), 2, plot.style_linebr)
+plot(showAlt ? altStop : na,  "Alt Stop",  color.new(color.fuchsia, 40), 1, plot.style_linebr)
+plot(showAlt ? altT1 : na,    "Alt T1",    color.new(color.fuchsia, 60), 1, plot.style_linebr)
+plot(showAlt ? altT2 : na,    "Alt T2",    color.new(color.fuchsia, 20), 1, plot.style_linebr)
+if evBetter and not autoSwitch
+    label.new(bar_index, betterBuy ? altT2 : altT2, "★ " + (betterBuy ? "BUY" : "SELL") + " alt\nE " + str.tostring(altEntry, format.mintick) + "  SL " + str.tostring(altStop, format.mintick) + "\nT1 " + str.tostring(altT1, format.mintick) + "  T2 " + str.tostring(altT2, format.mintick), style=betterBuy ? label.style_label_down : label.style_label_up, color=color.new(color.fuchsia, 20), textcolor=color.white, size=size.small)
+
 // ===== Dashboard =====
 var table tb = table.new(position.top_right, 2, 6, border_width=1)
 if barstate.islast
@@ -197,7 +226,7 @@ if evStopLoss
 if evStopBE
     alert("Stop hit (breakeven, no loss) " + syminfo.ticker + " — exit", alert.freq_once_per_bar_close)
 if evBetter and not autoSwitch
-    alert("STRONGER setup on " + syminfo.ticker + " (score " + str.tostring(math.max(longScore, shortScore)) + " > open " + str.tostring(eScore) + ") — consider switching", alert.freq_once_per_bar_close)
+    alert("STRONGER " + (betterBuy ? "BUY" : "SELL") + " on " + syminfo.ticker + " score " + str.tostring(math.max(longScore, shortScore)) + " > open " + str.tostring(eScore) + " — alt entry " + str.tostring(altEntry, format.mintick) + " SL " + str.tostring(altStop, format.mintick) + " T1 " + str.tostring(altT1, format.mintick) + " T2 " + str.tostring(altT2, format.mintick), alert.freq_once_per_bar_close)
 alertcondition(evBuy or evShort, "Any entry", "New entry signal")
 alertcondition(evBetter, "Stronger setup", "A stronger setup appeared on {{ticker}}")
 
