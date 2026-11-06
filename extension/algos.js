@@ -160,7 +160,8 @@
   function supertrend(candles, period, mult) {
     const n = candles.length;
     const dir = new Array(n).fill(0);
-    if (n < period + 2) return dir;
+    const line = new Array(n).fill(null);
+    if (n < period + 2) return { dir, line };
     const tr = [0];
     for (let i = 1; i < n; i++) {
       const h = candles[i].h, l = candles[i].l, pc = candles[i - 1].c;
@@ -184,8 +185,9 @@
       else d = candles[i].c < finalLo ? -1 : 1;
       dir[i] = d;
       prevST = d === 1 ? finalLo : finalUp;
+      line[i] = prevST;
     }
-    return dir;
+    return { dir, line };
   }
 
   // ADX + directional indicators (Wilder) — trend-strength filter.
@@ -217,12 +219,23 @@
     return { hist: macd[i] - sig[i], prev: macd[i - 1] - sig[i - 1] };
   }
 
-  // Weighted quality score (0-100), ported from the ELITE script: EMA stack, VWAP,
-  // ADX/DI, Supertrend, relative volume, RSI zone, MACD, and a trigger. Only BUY/SELL
-  // when score >= minScore AND ADX confirms trend strength — far more selective.
-  function swingDecide(candles, minScore) {
-    minScore = minScore || 70;
-    if (!candles || candles.length < 55) return { action: "WAIT", note: "loading candles…", score: 0, trend: "?" };
+  // Higher-timeframe trend from a candle series (EMA9 vs EMA21): "UP"/"DOWN"/"FLAT".
+  function htfTrendOf(candles) {
+    if (!candles || candles.length < 22) return "FLAT";
+    const c = candles.map(x => x.c);
+    const e9 = ema(c, 9), e21 = ema(c, 21), i = c.length - 1;
+    return e9[i] > e21[i] ? "UP" : e9[i] < e21[i] ? "DOWN" : "FLAT";
+  }
+
+  // Full-parity scored signal with nse_live.pine: 0-100 confluence score
+  // (HTF 15 + EMA-stack 15 + VWAP 15 + ADX/DI 15 + RVOL 10 + RSI 10 + MACD 10 + trigger 10),
+  // a STRUCTURAL stop = min(Supertrend, 5-bar swing) validated to 1-2.5 ATR, and 1.5R/3R
+  // targets. opts = { minScore, htfTrend ("UP"/"DOWN"/"FLAT") }.
+  function swingDecide(candles, opts) {
+    opts = opts || {};
+    const minScore = opts.minScore || 70;
+    const htf = opts.htfTrend || "FLAT";
+    if (!candles || candles.length < 55) return { action: "WAIT", note: "loading candles…", score: 0, trend: "?", htf };
     const closes = candles.map(c => c.c);
     const e20 = ema(closes, 20), e50 = ema(closes, 50), e200 = ema(closes, 200);
     const i = closes.length - 1, price = closes[i];
@@ -233,28 +246,40 @@
     const mh = macdHistAt(closes);
     const avgVol = candles.slice(-21, -1).reduce((s, c) => s + (c.v || 0), 0) / 20;
     const rvol = avgVol > 0 ? (candles[i].v || 0) / avgVol : 0;
-    const dir = supertrend(candles, 10, 3);
+    const { dir, line } = supertrend(candles, 10, 3);
     const flipUp = dir[i] === 1 && dir[i - 1] === -1, flipDn = dir[i] === -1 && dir[i - 1] === 1;
     const hiBreak = price > Math.max.apply(null, candles.slice(-11, -1).map(c => c.h));
     const loBreak = price < Math.min.apply(null, candles.slice(-11, -1).map(c => c.l));
 
-    const longScore = (e20[i] > e50[i] && e50[i] > e200[i] ? 15 : 0) + (price > vw ? 15 : 0) + (adx >= 20 && plusDI > minusDI ? 15 : 0) +
-      (dir[i] === 1 ? 15 : 0) + (rvol >= 1.1 ? 10 : 0) + (r >= 52 && r <= 70 ? 10 : 0) + (mh.hist > 0 && mh.hist > mh.prev ? 10 : 0) + ((flipUp || hiBreak) ? 10 : 0);
-    const shortScore = (e20[i] < e50[i] && e50[i] < e200[i] ? 15 : 0) + (price < vw ? 15 : 0) + (adx >= 20 && minusDI > plusDI ? 15 : 0) +
-      (dir[i] === -1 ? 15 : 0) + (rvol >= 1.1 ? 10 : 0) + (r <= 48 && r >= 30 ? 10 : 0) + (mh.hist < 0 && mh.hist < mh.prev ? 10 : 0) + ((flipDn || loBreak) ? 10 : 0);
+    const longScore = (htf === "UP" ? 15 : 0) + (e20[i] > e50[i] && e50[i] > e200[i] ? 15 : 0) + (price > vw ? 15 : 0) + (adx >= 20 && plusDI > minusDI ? 15 : 0) +
+      (rvol >= 1.1 ? 10 : 0) + (r >= 52 && r <= 70 ? 10 : 0) + (mh.hist > 0 && mh.hist > mh.prev ? 10 : 0) + ((flipUp || hiBreak) ? 10 : 0);
+    const shortScore = (htf === "DOWN" ? 15 : 0) + (e20[i] < e50[i] && e50[i] < e200[i] ? 15 : 0) + (price < vw ? 15 : 0) + (adx >= 20 && minusDI > plusDI ? 15 : 0) +
+      (rvol >= 1.1 ? 10 : 0) + (r <= 48 && r >= 30 ? 10 : 0) + (mh.hist < 0 && mh.hist < mh.prev ? 10 : 0) + ((flipDn || loBreak) ? 10 : 0);
+
+    // Structural stop = min(Supertrend line, 5-bar swing low); validated 1-2.5 ATR.
+    const swingLow = Math.min.apply(null, candles.slice(-6, -1).map(c => c.l));
+    const swingHigh = Math.max.apply(null, candles.slice(-6, -1).map(c => c.h));
+    const stL = line[i] != null ? line[i] : price - 1.5 * a;
+    const longStop = Math.min(stL, swingLow);
+    const shortStop = Math.max(stL, swingHigh);
+    const longDist = price - longStop, shortDist = shortStop - price;
+    const longStopOK = longDist >= a * 1.0 && longDist <= a * 2.5;
+    const shortStopOK = shortDist >= a * 1.0 && shortDist <= a * 2.5;
 
     const trend = longScore > shortScore && longScore >= 50 ? "UP" : shortScore > longScore && shortScore >= 50 ? "DOWN" : "FLAT";
     let action = "HOLD", levels = null;
-    if (longScore >= minScore && adx >= 20 && plusDI > minusDI) {
-      action = "BUY"; levels = { entry: price, stop: price - 1.5 * a, target1: price + 1.5 * a, target2: price + 3 * a };
-    } else if (shortScore >= minScore && adx >= 20 && minusDI > plusDI) {
-      action = "SELL"; levels = { entry: price, stop: price + 1.5 * a, target1: price - 1.5 * a, target2: price - 3 * a };
+    if (longScore >= minScore && adx >= 20 && plusDI > minusDI && (htf !== "DOWN") && longStopOK) {
+      const risk = price - longStop;
+      action = "BUY"; levels = { entry: price, stop: longStop, target1: price + 1.5 * risk, target2: price + 3 * risk };
+    } else if (shortScore >= minScore && adx >= 20 && minusDI > plusDI && (htf !== "UP") && shortStopOK) {
+      const risk = shortStop - price;
+      action = "SELL"; levels = { entry: price, stop: shortStop, target1: price - 1.5 * risk, target2: price - 3 * risk };
     }
     return { action, score: Math.max(longScore, shortScore), longScore, shortScore,
-             price: +price.toFixed(2), rsi: +r.toFixed(0), adx: +adx.toFixed(0), rvol: +rvol.toFixed(1), trend, levels };
+             price: +price.toFixed(2), rsi: +r.toFixed(0), adx: +adx.toFixed(0), rvol: +rvol.toFixed(1), trend, htf, levels };
   }
 
-  const api = { ema, rsi, atr, sessionVwap, adxDMI, supertrend, decide, swingDecide, ALGOS };
+  const api = { ema, rsi, atr, sessionVwap, adxDMI, supertrend, htfTrendOf, decide, swingDecide, ALGOS };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.Algos = api;
 })(typeof window !== "undefined" ? window : this);

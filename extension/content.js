@@ -12,7 +12,7 @@
   const IST = 19800;
   const BETTER_MARGIN = 10;
   const S = {
-    url: "", auth: "", symbol: "",
+    url: "", auth: "", symbol: "", interval: 5,
     phase: 0, entry: 0, stop: 0, t1: 0, t2: 0, t1done: false, eScore: 0,
     chart: null, series: null, lines: [], lastBetterAt: 0
   };
@@ -51,6 +51,7 @@
       '<div id="nlc-head"><span class="t">Groww Live ⚡</span><span class="s" id="nlc-status">…</span><span id="nlc-min" title="minimize">—</span></div>' +
       '<div id="nlc-body">' +
       '<div id="nlc-state"><span id="nlc-action" class="WAIT">—</span><span id="nlc-score">—</span></div>' +
+      '<div id="nlc-tfrow">Entry timeframe: <select id="nlc-tf"><option value="3">3 min</option><option value="5" selected>5 min</option><option value="15">15 min</option></select> <span id="nlc-htf"></span></div>' +
       '<button id="nlc-alert">🔔 Enable alerts</button>' +
       '<div id="nlc-sub"></div>' +
       '<div id="nlc-better"></div>' +
@@ -61,6 +62,9 @@
       '</div>';
     document.body.appendChild(p);
     $("nlc-min").onclick = () => p.classList.toggle("min");
+    const tf = $("nlc-tf");
+    tf.value = String(S.interval);
+    tf.onchange = () => { S.interval = parseInt(tf.value, 10) || 5; reset(); refresh(); };
     const ab = $("nlc-alert");
     if (window.Notification && Notification.permission === "granted") ab.style.display = "none";
     ab.onclick = () => { try { Notification.requestPermission().then((r) => { if (r === "granted") { ab.style.display = "none"; notify("Alerts on", "You'll be pinged on BUY/SELL/targets."); } }); } catch (e) {} };
@@ -92,9 +96,10 @@
     add(S.entry, "#38bdf8", "Entry"); add(S.stop, "#ff5c6c", "SL"); add(S.t1, "#ffd23f", "T1"); add(S.t2, "#22d36f", "T2");
   }
 
-  async function fetchCandles() {
+  async function fetchCandles(interval) {
     let url = S.url.replace("minimal=true", "minimal=false");
     if (url.indexOf("minimal=") === -1) url += (url.indexOf("?") === -1 ? "?" : "&") + "minimal=false";
+    if (interval) url = url.replace(/intervalInMinutes=\d+/, "intervalInMinutes=" + interval);
     const headers = { "Accept": "application/json" };
     if (S.auth) { headers["Authorization"] = S.auth; headers["X-APP-ID"] = "growwWeb"; headers["x-platform"] = "web"; }
     const r = await fetch(url, { headers, credentials: "include" });
@@ -165,9 +170,14 @@
     ensurePanel();
     if (!S.url) { const s = $("nlc-status"); if (s) s.textContent = "open a Groww stock chart…"; return; }
     try {
-      const candles = await fetchCandles();
+      const candles = await fetchCandles(S.interval);
       if (!candles.length) { $("nlc-status").textContent = "no live data…"; return; }
-      const d = Algos.swingDecide(candles);
+      // Higher-timeframe trend (the "multi-timeframe" accuracy): fetch a bigger interval.
+      const htfInt = S.interval < 15 ? 15 : S.interval * 4;
+      let htfTrend = "FLAT";
+      try { htfTrend = Algos.htfTrendOf(await fetchCandles(htfInt)); } catch (e) {}
+      const hb = $("nlc-htf"); if (hb) hb.textContent = "· " + htfInt + "m trend: " + htfTrend;
+      const d = Algos.swingDecide(candles, { minScore: 70, htfTrend });
       S.score = d.score;
       machine(candles, d);
       render(candles, d);

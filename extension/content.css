@@ -17,6 +17,9 @@
 #nlc-action.WAIT, #nlc-action.HOLD, #nlc-action.FLAT { color: #9aa4b2; }
 #nlc-score { margin-left: auto; font-size: 12px; font-weight: 700; padding: 3px 9px; border-radius: 999px; background: #1a2230; color: #c3cad6; }
 #nlc-score.hi { background: #10331f; color: #4ade80; }
+#nlc-tfrow { font-size: 11px; color: #8a94a2; margin-bottom: 9px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+#nlc-tf { background: #1a2230; color: #e6e9ee; border: 1px solid #2a3647; border-radius: 6px; padding: 3px 6px; font-size: 11px; }
+#nlc-htf { color: #c3cad6; }
 #nlc-alert { width: 100%; padding: 7px; margin-bottom: 10px; background: #1a2230; color: #38bdf8; border: 1px solid #2a3647; border-radius: 8px; font-weight: 700; font-size: 12px; cursor: pointer; }
 #nlc-alert:hover { background: #22304180; }
 #nlc-sub { font-size: 11px; color: #8a94a2; margin-bottom: 10px; }

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "NSE Groww Live",
-  "version": "1.0.0",
-  "description": "Live trade assistant on your Groww chart: scored BUY/SELL, trade management, mini chart, desktop alerts. Uses your own Groww session data. Manual execution only.",
+  "version": "1.1.0",
+  "description": "Live trade assistant on your Groww chart: multi-timeframe scored BUY/SELL (parity with nse_live.pine), structural stop, trade management, mini chart, desktop alerts. Uses your own Groww session data. Manual execution only.",
   "action": {
     "default_popup": "popup.html",
     "default_title": "NSE Groww Live"
