@@ -76,6 +76,7 @@ var float eStop = na
 var float eT1 = na
 var float eT2 = na
 var int eScore = 0           // score of the currently-open trade
+var float eRisk = na         // risk-per-unit at entry (price - stop), fixed for the trade
 var bool t1done = false
 bool evBuy = false
 bool evShort = false
@@ -191,6 +192,7 @@ if state == 0
         eEntry := close
         eStop := longStop
         float risk = eEntry - eStop
+        eRisk := risk
         eT1 := eEntry + r1 * risk
         eT2 := eEntry + r2 * risk
         eScore := longScore
@@ -201,6 +203,7 @@ if state == 0
         eEntry := close
         eStop := shortStop
         float risk = eStop - eEntry
+        eRisk := risk
         eT1 := eEntry - r1 * risk
         eT2 := eEntry - r2 * risk
         eScore := shortScore
@@ -231,8 +234,20 @@ plot(showAlt ? altT2 : na,    "Alt T2",    color.new(color.fuchsia, 20), 1, plot
 if evBetter and not autoSwitch
     label.new(bar_index, betterBuy ? altT2 : altT2, "★ " + (betterBuy ? "BUY" : "SELL") + " alt\nE " + str.tostring(altEntry, format.mintick) + "  SL " + str.tostring(altStop, format.mintick) + "\nT1 " + str.tostring(altT1, format.mintick) + "  T2 " + str.tostring(altT2, format.mintick), style=betterBuy ? label.style_label_down : label.style_label_up, color=color.new(color.fuchsia, 20), textcolor=color.white, size=size.small)
 
+// ===== Live floating P&L of the OPEN trade, updates every bar (not just on exit) =====
+// Before T1: full position floats. After T1: half already locked at r1, the running
+// half floats — same accounting the realized-R tally uses, so the two always agree.
+float floatR = na
+if state == 1 and not na(eRisk) and eRisk > 0
+    unrealized = (close - eEntry) / eRisk
+    floatR := t1done ? 0.5 * r1 + 0.5 * unrealized : unrealized
+else if state == -1 and not na(eRisk) and eRisk > 0
+    unrealized = (eEntry - close) / eRisk
+    floatR := t1done ? 0.5 * r1 + 0.5 * unrealized : unrealized
+liveTotalR = dayR + (na(floatR) ? 0.0 : floatR)
+
 // ===== Dashboard =====
-var table tb = table.new(position.top_right, 2, 8, border_width=1)
+var table tb = table.new(position.top_right, 2, 10, border_width=1)
 if barstate.islast
     msg = evBuy ? "🟢 BUY NOW @ " + str.tostring(eEntry, format.mintick) : evShort ? "🔴 SELL NOW @ " + str.tostring(eEntry, format.mintick) : evStopLoss ? "🔴 STOPPED OUT — loss" : evStopBE ? "⚪ EXITED AT BREAKEVEN — no loss" : evT2 ? "🟢 TARGET 2 HIT — full win" : state == 1 ? "HOLDING LONG — SL " + str.tostring(eStop, format.mintick) : state == -1 ? "HOLDING SHORT — SL " + str.tostring(eStop, format.mintick) : "WAIT — no setup"
     mcol = evBuy ? color.new(color.green, 0) : evShort ? color.new(color.red, 0) : state != 0 ? color.new(color.blue, 20) : color.new(color.gray, 35)
@@ -248,10 +263,14 @@ if barstate.islast
     table.cell(tb, 1, 4, str.tostring(rsiV, "#.0") + " / " + str.tostring(rvol, "#.0") + "x", text_color=color.silver)
     table.cell(tb, 0, 5, "15m trend", text_color=color.white, bgcolor=color.new(color.gray, 55))
     table.cell(tb, 1, 5, htfBull ? "UP" : htfBear ? "DOWN" : "FLAT", text_color = htfBull ? color.lime : htfBear ? color.red : color.silver)
-    table.cell(tb, 0, 6, "Today P&L (R)", text_color=color.white, bgcolor=color.new(color.gray, 40))
-    table.cell(tb, 1, 6, str.tostring(dayR, "#.00") + "R", text_color = dayR > 0 ? color.lime : dayR < 0 ? color.red : color.silver, bgcolor=color.new(color.gray, 40))
-    table.cell(tb, 0, 7, "Trades (W/L/BE)", text_color=color.white, bgcolor=color.new(color.gray, 55))
-    table.cell(tb, 1, 7, str.tostring(dayTrades) + " (" + str.tostring(dayWins) + "/" + str.tostring(dayLosses) + "/" + str.tostring(dayBE) + ")", text_color=color.silver)
+    table.cell(tb, 0, 6, "Realized today (R)", text_color=color.white, bgcolor=color.new(color.gray, 55))
+    table.cell(tb, 1, 6, str.tostring(dayR, "#.00") + "R", text_color = dayR > 0 ? color.lime : dayR < 0 ? color.red : color.silver)
+    table.cell(tb, 0, 7, "Open trade (R)", text_color=color.white, bgcolor=color.new(color.gray, 55))
+    table.cell(tb, 1, 7, na(floatR) ? "flat" : str.tostring(floatR, "#.00") + "R", text_color = na(floatR) ? color.silver : floatR > 0 ? color.lime : color.red)
+    table.cell(tb, 0, 8, "LIVE total (R)", text_color=color.white, bgcolor=color.new(color.gray, 40))
+    table.cell(tb, 1, 8, str.tostring(liveTotalR, "#.00") + "R", text_color = liveTotalR > 0 ? color.lime : liveTotalR < 0 ? color.red : color.silver, bgcolor=color.new(color.gray, 40))
+    table.cell(tb, 0, 9, "Trades (W/L/BE)", text_color=color.white, bgcolor=color.new(color.gray, 55))
+    table.cell(tb, 1, 9, str.tostring(dayTrades) + " (" + str.tostring(dayWins) + "/" + str.tostring(dayLosses) + "/" + str.tostring(dayBE) + ")", text_color=color.silver)
 
 // ===== Alerts (with levels in the message) =====
 if evBuy
