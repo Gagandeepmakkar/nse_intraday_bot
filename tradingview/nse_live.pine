@@ -17,6 +17,7 @@ rvolMin   = input.float(1.1, "Minimum relative volume", step=0.1, group="Signal"
 useHTF    = input.bool(true, "Use higher-timeframe trend", group="Signal")
 allowShort= input.bool(true, "Allow short trades", group="Signal")
 betterMargin = input.int(10, "While in a trade, flag a NEW setup only if its score beats the open trade by", minval=0, group="Signal")
+betterCooldown = input.int(20, "Min bars between ★ stronger-setup flags (reduces chart clutter)", minval=1, group="Signal")
 autoSwitch   = input.bool(false, "Auto-switch to the stronger setup", group="Signal")
 r1        = input.float(1.5, "Target 1 = risk ×", step=0.5, group="Risk")
 r2        = input.float(3.0, "Target 2 = risk ×", step=0.5, group="Risk")
@@ -85,10 +86,29 @@ bool evStopLoss = false   // stopped BEFORE T1 — a real loss
 bool evStopBE   = false   // stopped AFTER T1 — breakeven, not a loss
 bool evBetter = false
 
-// A NEW setup only matters mid-trade if it BEATS the open trade's score by the margin.
-betterBuy  = state != 0 and buySetup  and longScore  >= eScore + betterMargin
-betterSell = state != 0 and sellSetup and shortScore >= eScore + betterMargin
+// ===== Running P&L for the day (in R, so it's capital-size-independent) =====
+newDay = ta.change(time("D")) != 0
+var float dayR = 0.0
+var int dayWins = 0
+var int dayLosses = 0
+var int dayBE = 0
+var int dayTrades = 0
+var int lastBetterBar = na   // cooldown so the ★ flag doesn't spam every bar
+if newDay
+    dayR := 0.0
+    dayWins := 0
+    dayLosses := 0
+    dayBE := 0
+    dayTrades := 0
+
+// A NEW setup only matters mid-trade if it BEATS the open trade's score by the margin,
+// and only once every `betterCooldown` bars so the chart isn't spammed every bar.
+betterCool = na(lastBetterBar) or (bar_index - lastBetterBar) > betterCooldown
+betterBuy  = state != 0 and buySetup  and longScore  >= eScore + betterMargin and betterCool
+betterSell = state != 0 and sellSetup and shortScore >= eScore + betterMargin and betterCool
 evBetter := betterBuy or betterSell
+if evBetter
+    lastBetterBar := bar_index
 
 // The ALTERNATIVE setup's own entry/stop/targets (computed the same way a real entry
 // would be), so you can see and act on it even while another trade is open.
@@ -109,14 +129,20 @@ else if betterSell
     altT1 := altEntry - r1 * altRisk
     altT2 := altEntry - r2 * altRisk
 
-// 1) Manage the open trade's exits (stop / T1 breakeven / T2).
+// 1) Manage the open trade's exits (stop / T1 breakeven / T2). Realized R assumes the
+// stated exit plan: book half at T1, run the rest to T2 or breakeven.
 if state == 1
     if low <= eStop
         evStop := true
         if t1done
             evStopBE := true
+            dayR := dayR + 0.5 * r1          // half booked at T1, half flat at breakeven
+            dayBE := dayBE + 1
         else
             evStopLoss := true
+            dayR := dayR - 1.0
+            dayLosses := dayLosses + 1
+        dayTrades := dayTrades + 1
         state := 0
     else
         if not t1done and high >= eT1
@@ -125,14 +151,22 @@ if state == 1
             evT1 := true
         if high >= eT2
             evT2 := true
+            dayR := dayR + 0.5 * r1 + 0.5 * r2
+            dayWins := dayWins + 1
+            dayTrades := dayTrades + 1
             state := 0
 else if state == -1
     if high >= eStop
         evStop := true
         if t1done
             evStopBE := true
+            dayR := dayR + 0.5 * r1
+            dayBE := dayBE + 1
         else
             evStopLoss := true
+            dayR := dayR - 1.0
+            dayLosses := dayLosses + 1
+        dayTrades := dayTrades + 1
         state := 0
     else
         if not t1done and low <= eT1
@@ -141,6 +175,9 @@ else if state == -1
             evT1 := true
         if low <= eT2
             evT2 := true
+            dayR := dayR + 0.5 * r1 + 0.5 * r2
+            dayWins := dayWins + 1
+            dayTrades := dayTrades + 1
             state := 0
 
 // 2) Auto-switch: if a stronger setup appeared and we're still in, exit to take it.
@@ -195,7 +232,7 @@ if evBetter and not autoSwitch
     label.new(bar_index, betterBuy ? altT2 : altT2, "★ " + (betterBuy ? "BUY" : "SELL") + " alt\nE " + str.tostring(altEntry, format.mintick) + "  SL " + str.tostring(altStop, format.mintick) + "\nT1 " + str.tostring(altT1, format.mintick) + "  T2 " + str.tostring(altT2, format.mintick), style=betterBuy ? label.style_label_down : label.style_label_up, color=color.new(color.fuchsia, 20), textcolor=color.white, size=size.small)
 
 // ===== Dashboard =====
-var table tb = table.new(position.top_right, 2, 6, border_width=1)
+var table tb = table.new(position.top_right, 2, 8, border_width=1)
 if barstate.islast
     msg = evBuy ? "🟢 BUY NOW @ " + str.tostring(eEntry, format.mintick) : evShort ? "🔴 SELL NOW @ " + str.tostring(eEntry, format.mintick) : evStopLoss ? "🔴 STOPPED OUT — loss" : evStopBE ? "⚪ EXITED AT BREAKEVEN — no loss" : evT2 ? "🟢 TARGET 2 HIT — full win" : state == 1 ? "HOLDING LONG — SL " + str.tostring(eStop, format.mintick) : state == -1 ? "HOLDING SHORT — SL " + str.tostring(eStop, format.mintick) : "WAIT — no setup"
     mcol = evBuy ? color.new(color.green, 0) : evShort ? color.new(color.red, 0) : state != 0 ? color.new(color.blue, 20) : color.new(color.gray, 35)
@@ -211,6 +248,10 @@ if barstate.islast
     table.cell(tb, 1, 4, str.tostring(rsiV, "#.0") + " / " + str.tostring(rvol, "#.0") + "x", text_color=color.silver)
     table.cell(tb, 0, 5, "15m trend", text_color=color.white, bgcolor=color.new(color.gray, 55))
     table.cell(tb, 1, 5, htfBull ? "UP" : htfBear ? "DOWN" : "FLAT", text_color = htfBull ? color.lime : htfBear ? color.red : color.silver)
+    table.cell(tb, 0, 6, "Today P&L (R)", text_color=color.white, bgcolor=color.new(color.gray, 40))
+    table.cell(tb, 1, 6, str.tostring(dayR, "#.00") + "R", text_color = dayR > 0 ? color.lime : dayR < 0 ? color.red : color.silver, bgcolor=color.new(color.gray, 40))
+    table.cell(tb, 0, 7, "Trades (W/L/BE)", text_color=color.white, bgcolor=color.new(color.gray, 55))
+    table.cell(tb, 1, 7, str.tostring(dayTrades) + " (" + str.tostring(dayWins) + "/" + str.tostring(dayLosses) + "/" + str.tostring(dayBE) + ")", text_color=color.silver)
 
 // ===== Alerts (with levels in the message) =====
 if evBuy
