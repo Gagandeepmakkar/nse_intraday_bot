@@ -1,0 +1,300 @@
+//@version=6
+// MCX Commodity Live Trade Assistant — crypto-style adaptation of nse_live.pine for
+// MCX commodities (crude oil, natural gas, gold, silver, copper): long session
+// (~09:00-23:30 IST, no NSE-style square-off), wider ATR stop/target multiples
+// (commodities wick harder than NSE equities), and RVOL dropped (exchange volume
+// on commodity derivatives is less dependable as a filter than on cash equities)
+// — that weight is redistributed to trend/ADX, same adjustment made for btc_live.pine.
+// Same engine otherwise: 0-100 confluence score, structural stop, ADX filter, one-
+// trade state machine, breakeven after T1, ★ stronger-setup detection, and LIVE
+// floating + realized P&L in R-multiples on the dashboard (see bottom rows).
+// Live tool, not a backtest — validate on history and paper-trade before real capital.
+// Commodities can be extremely volatile around inventory/OPEC/weather data.
+// Confirmation only, not advice.
+indicator("MCX Commodity Live Assistant", overlay=true, max_labels_count=100)
+
+// ===== Inputs =====
+stFactor  = input.float(3.5, "Supertrend factor (wider than NSE)", minval=1, step=0.5, group="Signal")
+stATRp    = input.int(10,  "Supertrend ATR", group="Signal")
+minScore  = input.int(70,  "Minimum signal score (0-100)", minval=50, maxval=100, group="Signal")
+adxMin    = input.float(20, "Minimum ADX (trend strength)", group="Signal")
+useHTF    = input.bool(true, "Use higher-timeframe trend", group="Signal")
+allowShort= input.bool(true, "Allow short trades", group="Signal")
+betterMargin = input.int(10, "While in a trade, flag a NEW setup only if its score beats the open trade by", minval=0, group="Signal")
+betterCooldown = input.int(20, "Min bars between ★ stronger-setup flags (reduces chart clutter)", minval=1, group="Signal")
+autoSwitch   = input.bool(false, "Auto-switch to the stronger setup", group="Signal")
+r1        = input.float(2.0, "Target 1 = risk × (wider than NSE)", step=0.5, group="Risk")
+r2        = input.float(4.0, "Target 2 = risk ×", step=0.5, group="Risk")
+minStopATR= input.float(1.2, "Min stop distance (ATR)", step=0.1, group="Risk")
+maxStopATR= input.float(3.5, "Max stop distance (ATR)", step=0.1, group="Risk")
+
+// ===== Indicators =====
+ema20 = ta.ema(close, 20)
+ema50 = ta.ema(close, 50)
+ema200 = ta.ema(close, 200)
+atr    = ta.atr(14)
+rsiV   = ta.rsi(close, 14)
+vwapV  = ta.sma(hlc3, 24)   // rolling anchor — MCX's long session has no single clean "open"
+[plusDI, minusDI, adx] = ta.dmi(14, 14)
+[macdL, macdS, macdH] = ta.macd(close, 12, 26, 9)
+[stLine, stDir] = ta.supertrend(stFactor, stATRp)
+plot(ema50,  "EMA50",  color.new(color.orange, 40), 1)
+plot(ema200, "EMA200", color.new(color.gray, 30), 1)
+plot(vwapV,  "24-bar avg", color.new(color.blue, 0), 1)
+plot(stLine, "Supertrend", stDir < 0 ? color.new(color.green, 0) : color.new(color.red, 0), 2)
+
+autoHtf = timeframe.in_seconds() <= 3600 ? "240" : timeframe.period == "240" ? "D" : timeframe.period == "D" ? "W" : "W"
+htf20 = request.security(syminfo.tickerid, autoHtf, ta.ema(close, 20)[1], lookahead=barmerge.lookahead_on)
+htf50 = request.security(syminfo.tickerid, autoHtf, ta.ema(close, 50)[1], lookahead=barmerge.lookahead_on)
+htfBull = htf20 > htf50
+htfBear = htf20 < htf50
+
+flipUp = stDir < 0 and stDir[1] >= 0
+flipDn = stDir > 0 and stDir[1] <= 0
+
+// ===== Weighted quality score (0-100) =====
+hiBreak = close > ta.highest(high[1], 10)
+loBreak = close < ta.lowest(low[1], 10)
+// RVOL dropped (unreliable on commodity derivatives); its weight moved to HTF/EMA/ADX.
+longScore = (htfBull ? 20 : 0) + (ema20 > ema50 and ema50 > ema200 ? 20 : 0) + (close > vwapV ? 15 : 0) + (adx >= adxMin and plusDI > minusDI ? 20 : 0) + (rsiV >= 52 and rsiV <= 72 ? 10 : 0) + (macdH > 0 and macdH > macdH[1] ? 10 : 0) + (flipUp or hiBreak ? 5 : 0)
+shortScore = (htfBear ? 20 : 0) + (ema20 < ema50 and ema50 < ema200 ? 20 : 0) + (close < vwapV ? 15 : 0) + (adx >= adxMin and minusDI > plusDI ? 20 : 0) + (rsiV <= 48 and rsiV >= 28 ? 10 : 0) + (macdH < 0 and macdH < macdH[1] ? 10 : 0) + (flipDn or loBreak ? 5 : 0)
+
+// ===== Stop-distance validation + setup =====
+swingLow  = ta.lowest(low[1], 5)
+swingHigh = ta.highest(high[1], 5)
+longStop  = math.min(stLine, swingLow)
+shortStop = math.max(stLine, swingHigh)
+longDist  = close - longStop
+shortDist = shortStop - close
+longStopOK  = longDist  >= atr * minStopATR and longDist  <= atr * maxStopATR
+shortStopOK = shortDist >= atr * minStopATR and shortDist <= atr * maxStopATR
+
+buySetup  = longScore  >= minScore and adx >= adxMin and plusDI > minusDI and (not useHTF or htfBull) and longStopOK
+sellSetup = allowShort and shortScore >= minScore and adx >= adxMin and minusDI > plusDI and (not useHTF or htfBear) and shortStopOK
+
+// ===== Live state machine =====
+var int state = 0
+var float eEntry = na
+var float eStop = na
+var float eT1 = na
+var float eT2 = na
+var int eScore = 0           // score of the currently-open trade
+var float eRisk = na         // risk-per-unit at entry (price - stop), fixed for the trade
+var bool t1done = false
+bool evBuy = false
+bool evShort = false
+bool evT1 = false
+bool evT2 = false
+bool evStop = false
+bool evStopLoss = false   // stopped BEFORE T1 — a real loss
+bool evStopBE   = false   // stopped AFTER T1 — breakeven, not a loss
+bool evBetter = false
+
+// ===== Running P&L for the day (in R, so it's capital-size-independent) =====
+newDay = ta.change(time("D")) != 0
+var float dayR = 0.0
+var int dayWins = 0
+var int dayLosses = 0
+var int dayBE = 0
+var int dayTrades = 0
+var int lastBetterBar = na   // cooldown so the ★ flag doesn't spam every bar
+if newDay
+    dayR := 0.0
+    dayWins := 0
+    dayLosses := 0
+    dayBE := 0
+    dayTrades := 0
+
+// A NEW setup only matters mid-trade if it BEATS the open trade's score by the margin,
+// and only once every `betterCooldown` bars so the chart isn't spammed every bar.
+betterCool = na(lastBetterBar) or (bar_index - lastBetterBar) > betterCooldown
+betterBuy  = state != 0 and buySetup  and longScore  >= eScore + betterMargin and betterCool
+betterSell = state != 0 and sellSetup and shortScore >= eScore + betterMargin and betterCool
+evBetter := betterBuy or betterSell
+if evBetter
+    lastBetterBar := bar_index
+
+// The ALTERNATIVE setup's own entry/stop/targets (computed the same way a real entry
+// would be), so you can see and act on it even while another trade is open.
+float altEntry = na
+float altStop = na
+float altT1 = na
+float altT2 = na
+if betterBuy
+    altEntry := close
+    altStop := longStop
+    float altRisk = altEntry - altStop
+    altT1 := altEntry + r1 * altRisk
+    altT2 := altEntry + r2 * altRisk
+else if betterSell
+    altEntry := close
+    altStop := shortStop
+    float altRisk = altStop - altEntry
+    altT1 := altEntry - r1 * altRisk
+    altT2 := altEntry - r2 * altRisk
+
+// 1) Manage the open trade's exits (stop / T1 breakeven / T2). Realized R assumes the
+// stated exit plan: book half at T1, run the rest to T2 or breakeven.
+if state == 1
+    if low <= eStop
+        evStop := true
+        if t1done
+            evStopBE := true
+            dayR := dayR + 0.5 * r1          // half booked at T1, half flat at breakeven
+            dayBE := dayBE + 1
+        else
+            evStopLoss := true
+            dayR := dayR - 1.0
+            dayLosses := dayLosses + 1
+        dayTrades := dayTrades + 1
+        state := 0
+    else
+        if not t1done and high >= eT1
+            t1done := true
+            eStop := eEntry   // move stop to breakeven after T1
+            evT1 := true
+        if high >= eT2
+            evT2 := true
+            dayR := dayR + 0.5 * r1 + 0.5 * r2
+            dayWins := dayWins + 1
+            dayTrades := dayTrades + 1
+            state := 0
+else if state == -1
+    if high >= eStop
+        evStop := true
+        if t1done
+            evStopBE := true
+            dayR := dayR + 0.5 * r1
+            dayBE := dayBE + 1
+        else
+            evStopLoss := true
+            dayR := dayR - 1.0
+            dayLosses := dayLosses + 1
+        dayTrades := dayTrades + 1
+        state := 0
+    else
+        if not t1done and low <= eT1
+            t1done := true
+            eStop := eEntry
+            evT1 := true
+        if low <= eT2
+            evT2 := true
+            dayR := dayR + 0.5 * r1 + 0.5 * r2
+            dayWins := dayWins + 1
+            dayTrades := dayTrades + 1
+            state := 0
+
+// 2) Auto-switch: if a stronger setup appeared and we're still in, exit to take it.
+if autoSwitch and evBetter and state != 0
+    state := 0
+
+// 3) Enter when flat (a fresh signal, or right after a switch-exit).
+if state == 0
+    if buySetup
+        state := 1
+        eEntry := close
+        eStop := longStop
+        float risk = eEntry - eStop
+        eRisk := risk
+        eT1 := eEntry + r1 * risk
+        eT2 := eEntry + r2 * risk
+        eScore := longScore
+        t1done := false
+        evBuy := true
+    else if sellSetup
+        state := -1
+        eEntry := close
+        eStop := shortStop
+        float risk = eStop - eEntry
+        eRisk := risk
+        eT1 := eEntry - r1 * risk
+        eT2 := eEntry - r2 * risk
+        eScore := shortScore
+        t1done := false
+        evShort := true
+
+// ===== Levels + markers =====
+inTrade = state != 0 or evT2 or evStop
+plot(inTrade ? eEntry : na, "Entry", color.new(color.aqua, 0), 2, plot.style_linebr)
+plot(inTrade ? eStop : na,  "Stop",  color.new(color.red, 0), 1, plot.style_linebr)
+plot(inTrade ? eT1 : na,    "T1",    color.new(color.yellow, 0), 1, plot.style_linebr)
+plot(inTrade ? eT2 : na,    "T2",    color.new(color.green, 0), 1, plot.style_linebr)
+plotshape(evBuy,   "BUY NOW",  shape.labelup,   location.belowbar, color.new(color.green, 0), text="BUY",  textcolor=color.white, size=size.normal)
+plotshape(evShort, "SELL NOW", shape.labeldown, location.abovebar, color.new(color.red, 0),   text="SELL", textcolor=color.white, size=size.normal)
+plotshape(evT1,    "T1 hit",   shape.circle,    location.abovebar, color.new(color.yellow, 0), text="T1", size=size.tiny)
+plotshape(evT2,    "T2 hit",   shape.xcross,    location.abovebar, color.new(color.green, 0),  text="T2", size=size.small)
+plotshape(evStopLoss, "Stop hit (loss)",      shape.xcross, location.belowbar, color.new(color.red, 0),    text="SL",   size=size.small)
+plotshape(evStopBE,   "Stop hit (breakeven)", shape.xcross, location.belowbar, color.new(color.gray, 0),   text="BE",   size=size.small)
+plotshape(evBetter and not autoSwitch, "Stronger setup", shape.diamond, location.abovebar, color.new(color.fuchsia, 0), text="★ BETTER", textcolor=color.white, size=size.small)
+
+// Alternative (★ BETTER) setup's own levels — magenta, dotted, separate from the open
+// trade's lines above — so you can see and act on it without closing the current trade.
+showAlt = betterBuy or betterSell
+plot(showAlt ? altEntry : na, "Alt Entry", color.new(color.fuchsia, 0), 2, plot.style_linebr)
+plot(showAlt ? altStop : na,  "Alt Stop",  color.new(color.fuchsia, 40), 1, plot.style_linebr)
+plot(showAlt ? altT1 : na,    "Alt T1",    color.new(color.fuchsia, 60), 1, plot.style_linebr)
+plot(showAlt ? altT2 : na,    "Alt T2",    color.new(color.fuchsia, 20), 1, plot.style_linebr)
+if evBetter and not autoSwitch
+    label.new(bar_index, betterBuy ? altT2 : altT2, "★ " + (betterBuy ? "BUY" : "SELL") + " alt\nE " + str.tostring(altEntry, format.mintick) + "  SL " + str.tostring(altStop, format.mintick) + "\nT1 " + str.tostring(altT1, format.mintick) + "  T2 " + str.tostring(altT2, format.mintick), style=betterBuy ? label.style_label_down : label.style_label_up, color=color.new(color.fuchsia, 20), textcolor=color.white, size=size.small)
+
+// ===== Live floating P&L of the OPEN trade, updates every bar (not just on exit) =====
+// Before T1: full position floats. After T1: half already locked at r1, the running
+// half floats — same accounting the realized-R tally uses, so the two always agree.
+float floatR = na
+if state == 1 and not na(eRisk) and eRisk > 0
+    unrealized = (close - eEntry) / eRisk
+    floatR := t1done ? 0.5 * r1 + 0.5 * unrealized : unrealized
+else if state == -1 and not na(eRisk) and eRisk > 0
+    unrealized = (eEntry - close) / eRisk
+    floatR := t1done ? 0.5 * r1 + 0.5 * unrealized : unrealized
+liveTotalR = dayR + (na(floatR) ? 0.0 : floatR)
+
+// ===== Dashboard =====
+var table tb = table.new(position.top_right, 2, 10, border_width=1)
+if barstate.islast
+    msg = evBuy ? "🟢 BUY NOW @ " + str.tostring(eEntry, format.mintick) : evShort ? "🔴 SELL NOW @ " + str.tostring(eEntry, format.mintick) : evStopLoss ? "🔴 STOPPED OUT — loss" : evStopBE ? "⚪ EXITED AT BREAKEVEN — no loss" : evT2 ? "🟢 TARGET 2 HIT — full win" : state == 1 ? "HOLDING LONG — SL " + str.tostring(eStop, format.mintick) : state == -1 ? "HOLDING SHORT — SL " + str.tostring(eStop, format.mintick) : "WAIT — no setup"
+    mcol = evBuy ? color.new(color.green, 0) : evShort ? color.new(color.red, 0) : state != 0 ? color.new(color.blue, 20) : color.new(color.gray, 35)
+    table.cell(tb, 0, 0, "MCX Live", text_color=color.white, bgcolor=color.new(color.black, 20))
+    table.cell(tb, 1, 0, msg, text_color=color.white, bgcolor=mcol)
+    table.cell(tb, 0, 1, "BUY score",  text_color=color.white, bgcolor=color.new(color.gray, 55))
+    table.cell(tb, 1, 1, str.tostring(longScore) + "/100", text_color = longScore >= minScore ? color.lime : color.silver)
+    table.cell(tb, 0, 2, "SELL score", text_color=color.white, bgcolor=color.new(color.gray, 55))
+    table.cell(tb, 1, 2, str.tostring(shortScore) + "/100", text_color = shortScore >= minScore ? color.red : color.silver)
+    table.cell(tb, 0, 3, "ADX", text_color=color.white, bgcolor=color.new(color.gray, 55))
+    table.cell(tb, 1, 3, str.tostring(adx, "#.0"), text_color = adx >= adxMin ? color.lime : color.silver)
+    table.cell(tb, 0, 4, "RSI", text_color=color.white, bgcolor=color.new(color.gray, 55))
+    table.cell(tb, 1, 4, str.tostring(rsiV, "#.0"), text_color=color.silver)
+    table.cell(tb, 0, 5, "HTF trend ("+autoHtf+")", text_color=color.white, bgcolor=color.new(color.gray, 55))
+    table.cell(tb, 1, 5, htfBull ? "UP" : htfBear ? "DOWN" : "FLAT", text_color = htfBull ? color.lime : htfBear ? color.red : color.silver)
+    table.cell(tb, 0, 6, "Realized today (R)", text_color=color.white, bgcolor=color.new(color.gray, 55))
+    table.cell(tb, 1, 6, str.tostring(dayR, "#.00") + "R", text_color = dayR > 0 ? color.lime : dayR < 0 ? color.red : color.silver)
+    table.cell(tb, 0, 7, "Open trade (R)", text_color=color.white, bgcolor=color.new(color.gray, 55))
+    table.cell(tb, 1, 7, na(floatR) ? "flat" : str.tostring(floatR, "#.00") + "R", text_color = na(floatR) ? color.silver : floatR > 0 ? color.lime : color.red)
+    table.cell(tb, 0, 8, "LIVE total (R)", text_color=color.white, bgcolor=color.new(color.gray, 40))
+    table.cell(tb, 1, 8, str.tostring(liveTotalR, "#.00") + "R", text_color = liveTotalR > 0 ? color.lime : liveTotalR < 0 ? color.red : color.silver, bgcolor=color.new(color.gray, 40))
+    table.cell(tb, 0, 9, "Trades (W/L/BE)", text_color=color.white, bgcolor=color.new(color.gray, 55))
+    table.cell(tb, 1, 9, str.tostring(dayTrades) + " (" + str.tostring(dayWins) + "/" + str.tostring(dayLosses) + "/" + str.tostring(dayBE) + ")", text_color=color.silver)
+
+// ===== Alerts (with levels in the message) =====
+if evBuy
+    alert("BUY " + syminfo.ticker + " @" + str.tostring(eEntry, format.mintick) + " SL " + str.tostring(eStop, format.mintick) + " T1 " + str.tostring(eT1, format.mintick) + " T2 " + str.tostring(eT2, format.mintick) + " (score " + str.tostring(longScore) + ")", alert.freq_once_per_bar_close)
+if evShort
+    alert("SELL " + syminfo.ticker + " @" + str.tostring(eEntry, format.mintick) + " SL " + str.tostring(eStop, format.mintick) + " T1 " + str.tostring(eT1, format.mintick) + " T2 " + str.tostring(eT2, format.mintick) + " (score " + str.tostring(shortScore) + ")", alert.freq_once_per_bar_close)
+if evT1
+    alert("T1 hit " + syminfo.ticker + " — book half, stop to breakeven", alert.freq_once_per_bar_close)
+if evT2
+    alert("T2 hit " + syminfo.ticker + " — exit", alert.freq_once_per_bar_close)
+if evStopLoss
+    alert("Stop hit (LOSS) " + syminfo.ticker + " — exit", alert.freq_once_per_bar_close)
+if evStopBE
+    alert("Stop hit (breakeven, no loss) " + syminfo.ticker + " — exit", alert.freq_once_per_bar_close)
+if evBetter and not autoSwitch
+    alert("STRONGER " + (betterBuy ? "BUY" : "SELL") + " on " + syminfo.ticker + " score " + str.tostring(math.max(longScore, shortScore)) + " > open " + str.tostring(eScore) + " — alt entry " + str.tostring(altEntry, format.mintick) + " SL " + str.tostring(altStop, format.mintick) + " T1 " + str.tostring(altT1, format.mintick) + " T2 " + str.tostring(altT2, format.mintick), alert.freq_once_per_bar_close)
+alertcondition(evBuy or evShort, "Any entry", "New entry signal")
+alertcondition(evBetter, "Stronger setup", "A stronger setup appeared on {{ticker}}")
+
+
+
+
+
+//in use actual gagan
