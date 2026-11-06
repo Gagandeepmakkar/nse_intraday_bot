@@ -81,6 +81,8 @@ bool evShort = false
 bool evT1 = false
 bool evT2 = false
 bool evStop = false
+bool evStopLoss = false   // stopped BEFORE T1 — a real loss
+bool evStopBE   = false   // stopped AFTER T1 — breakeven, not a loss
 bool evBetter = false
 
 // A NEW setup only matters mid-trade if it BEATS the open trade's score by the margin.
@@ -92,6 +94,10 @@ evBetter := betterBuy or betterSell
 if state == 1
     if low <= eStop
         evStop := true
+        if t1done
+            evStopBE := true
+        else
+            evStopLoss := true
         state := 0
     else
         if not t1done and high >= eT1
@@ -104,6 +110,10 @@ if state == 1
 else if state == -1
     if high >= eStop
         evStop := true
+        if t1done
+            evStopBE := true
+        else
+            evStopLoss := true
         state := 0
     else
         if not t1done and low <= eT1
@@ -151,13 +161,14 @@ plotshape(evBuy,   "BUY NOW",  shape.labelup,   location.belowbar, color.new(col
 plotshape(evShort, "SELL NOW", shape.labeldown, location.abovebar, color.new(color.red, 0),   text="SELL", textcolor=color.white, size=size.normal)
 plotshape(evT1,    "T1 hit",   shape.circle,    location.abovebar, color.new(color.yellow, 0), text="T1", size=size.tiny)
 plotshape(evT2,    "T2 hit",   shape.xcross,    location.abovebar, color.new(color.green, 0),  text="T2", size=size.small)
-plotshape(evStop,  "Stop hit", shape.xcross,    location.belowbar, color.new(color.red, 0),    text="SL", size=size.small)
+plotshape(evStopLoss, "Stop hit (loss)",      shape.xcross, location.belowbar, color.new(color.red, 0),    text="SL",   size=size.small)
+plotshape(evStopBE,   "Stop hit (breakeven)", shape.xcross, location.belowbar, color.new(color.gray, 0),   text="BE",   size=size.small)
 plotshape(evBetter and not autoSwitch, "Stronger setup", shape.diamond, location.abovebar, color.new(color.fuchsia, 0), text="★ BETTER", textcolor=color.white, size=size.small)
 
 // ===== Dashboard =====
 var table tb = table.new(position.top_right, 2, 6, border_width=1)
 if barstate.islast
-    msg = evBuy ? "🟢 BUY NOW @ " + str.tostring(eEntry, format.mintick) : evShort ? "🔴 SELL NOW @ " + str.tostring(eEntry, format.mintick) : state == 1 ? "HOLDING LONG — SL " + str.tostring(eStop, format.mintick) : state == -1 ? "HOLDING SHORT — SL " + str.tostring(eStop, format.mintick) : "WAIT — no setup"
+    msg = evBuy ? "🟢 BUY NOW @ " + str.tostring(eEntry, format.mintick) : evShort ? "🔴 SELL NOW @ " + str.tostring(eEntry, format.mintick) : evStopLoss ? "🔴 STOPPED OUT — loss" : evStopBE ? "⚪ EXITED AT BREAKEVEN — no loss" : evT2 ? "🟢 TARGET 2 HIT — full win" : state == 1 ? "HOLDING LONG — SL " + str.tostring(eStop, format.mintick) : state == -1 ? "HOLDING SHORT — SL " + str.tostring(eStop, format.mintick) : "WAIT — no setup"
     mcol = evBuy ? color.new(color.green, 0) : evShort ? color.new(color.red, 0) : state != 0 ? color.new(color.blue, 20) : color.new(color.gray, 35)
     table.cell(tb, 0, 0, "NSE Live v2", text_color=color.white, bgcolor=color.new(color.black, 20))
     table.cell(tb, 1, 0, msg, text_color=color.white, bgcolor=mcol)
@@ -181,8 +192,10 @@ if evT1
     alert("T1 hit " + syminfo.ticker + " — book half, stop to breakeven", alert.freq_once_per_bar_close)
 if evT2
     alert("T2 hit " + syminfo.ticker + " — exit", alert.freq_once_per_bar_close)
-if evStop
-    alert("Stop hit " + syminfo.ticker + " — exit", alert.freq_once_per_bar_close)
+if evStopLoss
+    alert("Stop hit (LOSS) " + syminfo.ticker + " — exit", alert.freq_once_per_bar_close)
+if evStopBE
+    alert("Stop hit (breakeven, no loss) " + syminfo.ticker + " — exit", alert.freq_once_per_bar_close)
 if evBetter and not autoSwitch
     alert("STRONGER setup on " + syminfo.ticker + " (score " + str.tostring(math.max(longScore, shortScore)) + " > open " + str.tostring(eScore) + ") — consider switching", alert.freq_once_per_bar_close)
 alertcondition(evBuy or evShort, "Any entry", "New entry signal")
