@@ -64,12 +64,15 @@
 #nlc-journal { margin-bottom: 8px; }
 .nlc-je { display: flex; justify-content: space-between; font-size: 11px; padding: 2px 0; border-bottom: 1px solid #141b24; color: #aab3c0; }
 .nlc-je b i { font-style: normal; color: #6f7986; font-size: 9px; }
-#nlc-settings { background: #0c1117; border: 1px solid #1e2733; border-radius: 10px; padding: 9px; margin-bottom: 8px; }
-.nlc-sgrid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 8px; }
-.nlc-f { display: flex; flex-direction: column; font-size: 9px; color: #8a94a2; }
-.nlc-f input { background: #1a2230; color: #e6e9ee; border: 1px solid #2a3647; border-radius: 6px; padding: 3px 5px; font-size: 11px; margin-top: 2px; }
-.nlc-chk { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: #c3cad6; margin-right: 12px; }
-.nlc-tg { font-size: 10px; color: #8a94a2; margin: 8px 0; }
-.nlc-tg input { width: 100%; background: #1a2230; color: #e6e9ee; border: 1px solid #2a3647; border-radius: 6px; padding: 4px 6px; font-size: 11px; margin-top: 4px; }
+#nlc-settings { background: #0c1117; border: 1px solid #1e2733; border-radius: 10px; padding: 10px; margin-bottom: 8px; }
+.nlc-sgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px 10px; margin-bottom: 10px; }
+.nlc-f { display: flex; flex-direction: column; font-size: 10px; color: #8a94a2; min-width: 0; }
+.nlc-f span { margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nlc-f input { width: 100%; background: #1a2230; color: #e6e9ee; border: 1px solid #2a3647; border-radius: 6px; padding: 5px 7px; font-size: 12px; }
+.nlc-chk { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #c3cad6; margin: 4px 0; }
+.nlc-chk input { width: auto; }
+.nlc-tg { display: flex; flex-direction: column; font-size: 10px; color: #8a94a2; margin: 10px 0; }
+.nlc-tg input { width: 100%; background: #1a2230; color: #e6e9ee; border: 1px solid #2a3647; border-radius: 6px; padding: 5px 7px; font-size: 12px; margin-top: 5px; }
+.nlc-tg .nlc-mini { align-self: flex-start; margin-top: 6px; }
 .nlc-save { width: 100%; background: #10331f; color: #4ade80; border: 1px solid #1c5235; border-radius: 8px; padding: 7px; font-weight: 700; font-size: 12px; cursor: pointer; margin-top: 4px; }
 .nlc-save:hover { background: #124227; }
