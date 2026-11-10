@@ -136,8 +136,19 @@
         '<button id="set-save" class="nlc-save">Save settings</button>' +
       '</div>' +
       '<div id="nlc-foot">Real-time via your Groww session · paper-trade · NOT advice — execute manually.</div>' +
-      '</div>';
+      '</div>' +
+      '<div id="nlc-resize" title="drag to resize">⤡</div>';
     document.body.appendChild(p);
+    // explicit drag-to-resize (more reliable than the CSS corner on a busy page)
+    const rz = $("nlc-resize"); let rw, rh, rx, ry, rzOn = false;
+    rz.addEventListener("mousedown", (e) => { rzOn = true; const r = p.getBoundingClientRect(); rw = r.width; rh = r.height; rx = e.clientX; ry = e.clientY; e.preventDefault(); e.stopPropagation(); });
+    document.addEventListener("mousemove", (e) => {
+      if (!rzOn) return;
+      p.style.width = Math.max(300, Math.min(window.innerWidth * 0.96, rw + e.clientX - rx)) + "px";
+      p.style.height = Math.max(150, Math.min(window.innerHeight * 0.92, rh + e.clientY - ry)) + "px";
+      const dv = $("nlc-chart"); if (S.chart && dv) S.chart.applyOptions({ width: dv.clientWidth });
+    });
+    document.addEventListener("mouseup", () => { rzOn = false; });
     try { new ResizeObserver(() => { const dv = $("nlc-chart"); if (S.chart && dv) S.chart.applyOptions({ width: dv.clientWidth }); }).observe(p); } catch (e) {}
     $("nlc-min").onclick = () => p.classList.toggle("min");
     $("nlc-gear").onclick = () => $("nlc-settings").classList.toggle("hidden");

@@ -3,9 +3,14 @@
   width: 340px; background: #0b0f14; color: #e6e9ee;
   border: 1px solid #263040; border-radius: 14px; box-shadow: 0 12px 48px rgba(0,0,0,.6);
   font: 13px/1.45 -apple-system, Segoe UI, Roboto, sans-serif;
-  overflow: auto; resize: both;             /* drag the bottom-right corner to resize */
+  overflow: auto;
   min-width: 300px; max-width: 96vw; min-height: 150px; max-height: 92vh;
 }
+#nlc-resize { position: absolute; right: 2px; bottom: 2px; width: 18px; height: 18px;
+  cursor: nwse-resize; color: #6f7986; font-size: 13px; line-height: 18px; text-align: center;
+  z-index: 3; user-select: none; }
+#nlc-resize:hover { color: #e6e9ee; }
+#nse-live-confirm.min #nlc-resize { display: none; }
 #nse-live-confirm * { box-sizing: border-box; }
 #nlc-head { display: flex; align-items: center; gap: 6px; padding: 10px 12px; cursor: move; background: #11161d; border-bottom: 1px solid #1e2733; flex-wrap: nowrap; }
 #nlc-head .t { font-weight: 800; font-size: 13px; letter-spacing: .3px; white-space: nowrap; flex: 0 0 auto; }
