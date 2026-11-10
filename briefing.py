@@ -22,6 +22,7 @@ Usage:
 
 Reads .env for SOURCE, SMTP_*, NTFY_TOPIC (via python-dotenv if present).
 """
+import json
 import os
 import sys
 import urllib.parse
@@ -105,6 +106,38 @@ def sentiment(headlines):
     return label, score, p, n
 
 
+def ai_news(symbol, headlines):
+    """If GEMINI_API_KEY is set, let Gemini read the headlines and return a smarter
+    (sentiment, caution) read. Returns None to fall back to keyword sentiment.
+    HONEST: this sharpens news UNDERSTANDING and risk-flagging; it does not predict price."""
+    key = os.getenv("GEMINI_API_KEY", "").strip()
+    if not key or not headlines:
+        return None
+    model = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+    hs = "\n- ".join(headlines)
+    prompt = (
+        f"You are a terse intraday-trading RISK assistant for the NSE stock {symbol}. "
+        "From these headlines, reply ONLY as compact JSON: "
+        '{"sentiment":"bullish|bearish|neutral","caution":"one short line naming any '
+        "event that makes intraday trading risky today (earnings, probe, ban, big gap, "
+        'none)"}. Do not predict price. Headlines:\n- ' + hs
+    )
+    body = json.dumps({"contents": [{"parts": [{"text": prompt}]}]}).encode()
+    url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
+           f"{model}:generateContent?key={key}")
+    try:
+        req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            data = json.load(r)
+        txt = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+        txt = txt.replace("```json", "").replace("```", "").strip()
+        obj = json.loads(txt)
+        return obj.get("sentiment", "neutral"), obj.get("caution", "none")
+    except Exception as e:
+        print(f"  (Gemini unavailable, using keyword sentiment: {e})", file=sys.stderr)
+        return None
+
+
 def analyse(symbol):
     df = fetch_daily(symbol)
     if df is None or len(df) < 30:
@@ -134,7 +167,12 @@ def analyse(symbol):
                                           "close": float(last["close"])})
 
     news = fetch_news(symbol)
-    slabel, sscore, sp, sn = sentiment(news)
+    ai = ai_news(symbol, news)      # Gemini read if GEMINI_API_KEY is set, else None
+    if ai:
+        slabel, caution = ai[0] + " (AI)", ai[1]
+    else:
+        slabel, _s, sp, sn = sentiment(news)
+        slabel, caution = f"{slabel} (+{sp}/−{sn})", None
     filings = fetch_filings(symbol)
 
     out = []
@@ -148,7 +186,9 @@ def analyse(symbol):
     out.append(f"- Resistance: R3 ₹{piv['cam_h3']:,.1f} · R4 ₹{piv['cam_h4']:,.1f} · 20d-high ₹{hi20:,.1f}")
     out.append(f"- Support: S3 ₹{piv['cam_l3']:,.1f} · S4 ₹{piv['cam_l4']:,.1f} · 20d-low ₹{lo20:,.1f}")
     out.append("")
-    out.append(f"**News sentiment:** {slabel}  (+{sp}/−{sn} keyword hits)")
+    out.append(f"**News sentiment:** {slabel}")
+    if caution and str(caution).lower() not in ("none", "", "null"):
+        out.append(f"⚠️ **Caution:** {caution}")
     if news:
         for t in news:
             out.append(f"- {t}")
