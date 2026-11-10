@@ -14,7 +14,8 @@
   const S = {
     url: "", auth: "", symbol: "", interval: 5,
     phase: 0, entry: 0, stop: 0, t1: 0, t2: 0, t1done: false, eScore: 0,
-    chart: null, series: null, lines: [], lastBetterAt: 0
+    chart: null, series: null, lines: [], lastBetterAt: 0,
+    equity: 100000, riskPct: 0.5, shares: 0
   };
 
   window.addEventListener("message", (e) => {
@@ -48,7 +49,7 @@
     const p = document.createElement("div");
     p.id = "nse-live-confirm";
     p.innerHTML =
-      '<div id="nlc-head"><span class="t">Groww Live ⚡</span><span class="s" id="nlc-status">…</span><span id="nlc-min" title="minimize">—</span></div>' +
+      '<div id="nlc-head"><span class="t">VIM Live ⚡</span><span class="s" id="nlc-status">…</span><span id="nlc-min" title="minimize">—</span></div>' +
       '<div id="nlc-body">' +
       '<div id="nlc-state"><span id="nlc-action" class="WAIT">—</span><span id="nlc-score">—</span></div>' +
       '<div id="nlc-tfrow">Entry timeframe: <select id="nlc-tf"><option value="3">3 min</option><option value="5" selected>5 min</option><option value="15">15 min</option></select> <span id="nlc-htf"></span></div>' +
@@ -122,14 +123,14 @@
     } else if (S.phase === 1) {
       if (lo <= S.stop) { notify("⛔ STOP " + S.symbol, "Exit — stop hit"); reset(); }
       else {
-        if (!S.t1done && hi >= S.t1) { S.t1done = true; S.stop = S.entry; notify("🎯 T1 " + S.symbol, "Book half, stop to breakeven"); }
-        if (hi >= S.t2) { notify("✅ T2 " + S.symbol, "Exit the rest — target 2 hit"); reset(); }
+        if (!S.t1done && hi >= S.t1) { S.t1done = true; S.stop = S.entry; notify("🎯 +1R " + S.symbol, "Book 1/3, trail the rest (stop → breakeven)"); }
+        if (hi >= S.t2) { notify("✅ +3R " + S.symbol, "Runner hit — exit or keep trailing"); reset(); }
       }
     } else if (S.phase === -1) {
       if (hi >= S.stop) { notify("⛔ STOP " + S.symbol, "Exit — stop hit"); reset(); }
       else {
-        if (!S.t1done && lo <= S.t1) { S.t1done = true; S.stop = S.entry; notify("🎯 T1 " + S.symbol, "Book half, stop to breakeven"); }
-        if (lo <= S.t2) { notify("✅ T2 " + S.symbol, "Exit the rest — target 2 hit"); reset(); }
+        if (!S.t1done && lo <= S.t1) { S.t1done = true; S.stop = S.entry; notify("🎯 +1R " + S.symbol, "Book 1/3, trail the rest (stop → breakeven)"); }
+        if (lo <= S.t2) { notify("✅ +3R " + S.symbol, "Runner hit — exit or keep trailing"); reset(); }
       }
     }
     // stronger-setup flag while in a trade
@@ -147,15 +148,15 @@
     act.className = S.phase === 1 ? "LONG" : S.phase === -1 ? "SHORT" : d.action || "WAIT";
     act.textContent = label;
     const sc = $("nlc-score"); sc.textContent = "score " + (d.score != null ? d.score : "–"); sc.className = (d.score >= 70 ? "hi" : "");
-    $("nlc-sub").textContent = S.phase !== 0 ? ("entered @ " + S.entry.toFixed(2) + " · score was " + S.eScore + (S.t1done ? " · T1 booked, stop at breakeven" : ""))
-      : d.action === "HOLD" ? ("in trend — waiting for score ≥ 70 + ADX ≥ 20") : ("no clean setup · trend " + d.trend);
+    $("nlc-sub").textContent = S.phase !== 0 ? ("entered @ " + S.entry.toFixed(2) + " · " + S.shares + " sh" + (S.t1done ? " · +1R booked, trailing" : ""))
+      : (d.note || ("trend " + d.trend));
     $("nlc-levels").innerHTML = S.phase !== 0 ? [
       ["Entry", S.entry, "en"], ["SL", S.stop, "sl"], ["T1", S.t1, "t1"], ["T2", S.t2, "t2"]
     ].map(([k, v, c]) => `<div class="nlc-lv ${c}"><div class="k">${k}</div><div class="v">₹${Number(v).toFixed(2)}</div></div>`).join("")
       : (d.levels ? [["Entry", d.levels.entry, "en"], ["SL", d.levels.stop, "sl"], ["T1", d.levels.target1, "t1"], ["T2", d.levels.target2, "t2"]]
         .map(([k, v, c]) => `<div class="nlc-lv ${c}"><div class="k">${k}</div><div class="v">₹${Number(v).toFixed(2)}</div></div>`).join("")
         : `<div class="nlc-lv" style="grid-column:1/-1"><div class="k">No trade</div><div class="v">₹${d.price != null ? d.price : "?"}</div></div>`);
-    $("nlc-ev").innerHTML = `<b>BUY</b> ${d.longScore != null ? d.longScore : "?"} · <b>SELL</b> ${d.shortScore != null ? d.shortScore : "?"} · ADX <b>${d.adx != null ? d.adx : "?"}</b> · RVOL ${d.rvol != null ? d.rvol : "?"}x · RSI ${d.rsi != null ? d.rsi : "?"}`;
+    $("nlc-ev").innerHTML = `Regime <b>${d.regime || "?"}</b> · ADX <b>${d.adx != null ? d.adx : "?"}</b> · RSI ${d.rsi != null ? d.rsi : "?"} · size <b>${S.shares}</b> sh (1R ₹${d.risk != null ? d.risk : "?"})`;
     // chart
     ensureChart();
     if (S.series && candles.length) {
@@ -177,8 +178,9 @@
       let htfTrend = "FLAT";
       try { htfTrend = Algos.htfTrendOf(await fetchCandles(htfInt)); } catch (e) {}
       const hb = $("nlc-htf"); if (hb) hb.textContent = "· " + htfInt + "m trend: " + htfTrend;
-      const d = Algos.swingDecide(candles, { minScore: 70, htfTrend });
+      const d = Algos.vimDecide(candles, { interval: S.interval, orMinutes: 20, equity: S.equity, riskPct: S.riskPct });
       S.score = d.score;
+      S.shares = d.shares || 0;
       machine(candles, d);
       render(candles, d);
     } catch (err) { const s = $("nlc-status"); if (s) s.textContent = "err: " + err.message; }

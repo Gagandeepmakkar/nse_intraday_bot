@@ -279,7 +279,80 @@
              price: +price.toFixed(2), rsi: +r.toFixed(0), adx: +adx.toFixed(0), rvol: +rvol.toFixed(1), trend, htf, levels };
   }
 
-  const api = { ema, rsi, atr, sessionVwap, adxDMI, supertrend, htfTrendOf, decide, swingDecide, ALGOS };
+  // VIM — Volatility-normalized Intraday Momentum (parity with vim_nse.pine). The
+  // math-first engine: trade only in the opening-range + VWAP momentum regime, enter on a
+  // reversal pullback to EMA9 then resumption (better fills), fixed 1.2-ATR stop = 1R,
+  // vol-targeted share size. Returns the same shape as swingDecide so the UI is unchanged;
+  // target1 = +1R (the "scale 1/3 + trail" point), target2 = +3R (runner proxy).
+  // opts = { interval (min/bar), orMinutes, equity, riskPct }.
+  function vimDecide(candles, opts) {
+    opts = opts || {};
+    const interval = opts.interval || 5;
+    const orMin = opts.orMinutes || 20;
+    const stopATRm = 1.2, emaLen = 9;
+    if (!candles || candles.length < 30) return { action: "WAIT", note: "loading candles…", score: 0, trend: "?" };
+    const closes = candles.map(c => c.c);
+    const i = closes.length - 1, price = closes[i];
+    const a = atr(candles) || price * 0.003;
+    const e = ema(closes, emaLen);
+    const vw = sessionVwap(candles);
+    const r = rsi(closes) || 50;
+    const { adx, plusDI, minusDI } = adxDMI(candles, 14);
+
+    // Opening range on the latest day; regime = OR direction confirmed by side of VWAP.
+    const lastDay = new Date(candles[i].t * 1000).getUTCDate();
+    const today = candles.filter(c => new Date(c.t * 1000).getUTCDate() === lastDay);
+    const orBars = Math.max(1, Math.ceil(orMin / interval));
+    let regime = "none", orHigh = null, orLow = null;
+    if (today.length > orBars) {
+      const orC = today.slice(0, orBars);
+      orHigh = Math.max.apply(null, orC.map(c => c.h));
+      orLow = Math.min.apply(null, orC.map(c => c.l));
+      const orDir = orC[orC.length - 1].c > orC[0].o ? 1 : orC[orC.length - 1].c < orC[0].o ? -1 : 0;
+      if (orDir > 0 && price > vw) regime = "up";
+      else if (orDir < 0 && price < vw) regime = "down";
+    }
+
+    // Reversal-timed trigger: a pullback to EMA occurred recently AND price now resumes.
+    const lookback = 6;
+    let pulledUp = false, pulledDn = false;
+    for (let k = Math.max(1, i - lookback); k <= i; k++) {
+      if (candles[k].l <= e[k]) pulledUp = true;
+      if (candles[k].h >= e[k]) pulledDn = true;
+    }
+    const crossUp = closes[i - 1] <= e[i - 1] && price > e[i];
+    const crossDn = closes[i - 1] >= e[i - 1] && price < e[i];
+
+    const risk = stopATRm * a;
+    let action = "HOLD", levels = null;
+    if (regime === "up" && pulledUp && crossUp && adx >= 20 && plusDI > minusDI) {
+      action = "BUY";
+      levels = { entry: price, stop: price - risk, target1: price + risk, target2: price + 3 * risk };
+    } else if (regime === "down" && pulledDn && crossDn && adx >= 20 && minusDI > plusDI) {
+      action = "SELL";
+      levels = { entry: price, stop: price + risk, target1: price - risk, target2: price - 3 * risk };
+    }
+
+    const equity = opts.equity || 100000, riskPct = opts.riskPct || 0.5;
+    const shares = risk > 0 ? Math.floor((riskPct / 100 * equity) / risk) : 0;
+    const trend = regime === "up" ? "UP" : regime === "down" ? "DOWN" : "FLAT";
+    let score = 0;
+    if (regime !== "none") {
+      score = 50;
+      if ((regime === "up" && adx >= 20 && plusDI > minusDI) || (regime === "down" && adx >= 20 && minusDI > plusDI)) score += 25;
+      if (action !== "HOLD") score += 25;
+    }
+    return {
+      action, score, longScore: regime === "up" ? score : 0, shortScore: regime === "down" ? score : 0,
+      price: +price.toFixed(2), rsi: +r.toFixed(0), adx: +adx.toFixed(0), rvol: 0, trend,
+      regime, orHigh, orLow, shares, risk: +risk.toFixed(2), levels,
+      note: regime === "none" ? "no regime yet (choppy / range still forming)"
+        : action === "HOLD" ? ("" + regime + " regime — waiting for pullback→resume")
+          : "entry trigger — " + regime + " regime"
+    };
+  }
+
+  const api = { ema, rsi, atr, sessionVwap, adxDMI, supertrend, htfTrendOf, decide, swingDecide, vimDecide, ALGOS };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.Algos = api;
 })(typeof window !== "undefined" ? window : this);
