@@ -284,6 +284,23 @@
   // reversal pullback to EMA9 then resumption (better fills), fixed 1.2-ATR stop = 1R,
   // vol-targeted share size. Returns the same shape as swingDecide so the UI is unchanged;
   // target1 = +1R (the "scale 1/3 + trail" point), target2 = +3R (runner proxy).
+  // Prior-session key levels (pivot + Camarilla R3/R4/S3/S4 + prior H/L) from the
+  // candle history — the same levels the pre-market briefing reports. Returns null if
+  // the series doesn't contain a prior session yet.
+  function priorDayLevels(candles) {
+    const key = (c) => new Date(c.t * 1000).toISOString().slice(0, 10);
+    const days = [];
+    for (const c of candles) { const k = key(c); if (days[days.length - 1] !== k) days.push(k); }
+    if (days.length < 2) return null;
+    const prevKey = days[days.length - 2];
+    const pc = candles.filter(c => key(c) === prevKey);
+    if (!pc.length) return null;
+    const h = Math.max.apply(null, pc.map(c => c.h));
+    const l = Math.min.apply(null, pc.map(c => c.l));
+    const c = pc[pc.length - 1].c, rng = h - l, pivot = (h + l + c) / 3;
+    return { pivot, r3: c + rng * 1.1 / 4, r4: c + rng * 1.1 / 2, s3: c - rng * 1.1 / 4, s4: c - rng * 1.1 / 2, dayHigh: h, dayLow: l };
+  }
+
   // opts = { interval (min/bar), orMinutes, equity, riskPct }.
   function vimDecide(candles, opts) {
     opts = opts || {};
@@ -336,6 +353,25 @@
       levels = { entry: price, stop: price + risk, target1: price - r1 * risk, target2: price - r2 * risk };
     }
 
+    // LEVEL FUSION: block a signal that fires into a wall — a long with no room up to
+    // the nearest resistance, or a short with no floor down to the nearest support.
+    // "Room" must cover at least most of the way to Target 1, else the trade can't work.
+    const lv = priorDayLevels(candles);
+    let wallNote = "";
+    let nearRes = null, nearSup = null;
+    if (lv) {
+      const resAbove = [lv.r3, lv.r4, lv.dayHigh, lv.pivot].filter(x => x > price).sort((x, y) => x - y);
+      const supBelow = [lv.s3, lv.s4, lv.dayLow, lv.pivot].filter(x => x < price).sort((x, y) => y - x);
+      nearRes = resAbove.length ? resAbove[0] : null;
+      nearSup = supBelow.length ? supBelow[0] : null;
+      const need = 0.8 * r1 * risk;   // must have ~80% of the T1 distance clear
+      if (action === "BUY" && nearRes != null && (nearRes - price) < need) {
+        action = "HOLD"; levels = null; wallNote = "blocked: resistance ₹" + nearRes.toFixed(1) + " too close (no room to T1)";
+      } else if (action === "SELL" && nearSup != null && (price - nearSup) < need) {
+        action = "HOLD"; levels = null; wallNote = "blocked: support ₹" + nearSup.toFixed(1) + " too close (no room to T1)";
+      }
+    }
+
     const equity = opts.equity || 100000, riskPct = opts.riskPct || 0.5;
     const shares = risk > 0 ? Math.floor((riskPct / 100 * equity) / risk) : 0;
     const trend = regime === "up" ? "UP" : regime === "down" ? "DOWN" : "FLAT";
@@ -349,9 +385,11 @@
       action, score, longScore: regime === "up" ? score : 0, shortScore: regime === "down" ? score : 0,
       price: +price.toFixed(2), rsi: +r.toFixed(0), adx: +adx.toFixed(0), rvol: 0, trend,
       regime, orHigh, orLow, shares, risk: +risk.toFixed(2), levels,
-      note: regime === "none" ? "no regime yet (choppy / range still forming)"
+      keyLevels: lv, nearRes: nearRes != null ? +nearRes.toFixed(1) : null, nearSup: nearSup != null ? +nearSup.toFixed(1) : null,
+      note: wallNote ? wallNote
+        : regime === "none" ? "no regime yet (choppy / range still forming)"
         : action === "HOLD" ? ("" + regime + " regime — waiting for pullback→resume")
-          : "entry trigger — " + regime + " regime"
+          : "entry trigger near levels — " + regime + " regime"
     };
   }
 

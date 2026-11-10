@@ -402,7 +402,8 @@
       : (d.levels ? [["Entry", d.levels.entry, "en"], ["SL", d.levels.stop, "sl"], ["T1", d.levels.target1, "t1"], ["T2", d.levels.target2, "t2"]]
         .map(([k, v, c]) => `<div class="nlc-lv ${c}"><div class="k">${k}</div><div class="v">₹${Number(v).toFixed(2)}</div></div>`).join("")
         : `<div class="nlc-lv" style="grid-column:1/-1"><div class="k">No trade</div><div class="v">₹${d.price != null ? d.price : "?"}</div></div>`);
-    $("nlc-ev").innerHTML = `Regime <b>${d.regime || "?"}</b> · ADX <b>${d.adx != null ? d.adx : "?"}</b> · RSI ${d.rsi != null ? d.rsi : "?"} · size <b>${S.shares}</b> sh (1R ₹${d.risk != null ? d.risk : "?"})`;
+    const sr = (d.nearSup != null || d.nearRes != null) ? ` · Sup <b>${d.nearSup != null ? "₹" + d.nearSup : "—"}</b> / Res <b>${d.nearRes != null ? "₹" + d.nearRes : "—"}</b>` : "";
+    $("nlc-ev").innerHTML = `Regime <b>${d.regime || "?"}</b> · ADX <b>${d.adx != null ? d.adx : "?"}</b> · RSI ${d.rsi != null ? d.rsi : "?"} · size <b>${S.shares}</b> sh${sr}`;
     // chart
     ensureChart();
     if (S.series && candles.length) {
