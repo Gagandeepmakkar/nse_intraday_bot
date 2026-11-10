@@ -1,0 +1,211 @@
+//@version=6
+// ORB — Opening Range Breakout for NSE. Faithful port of the Zarattini & Aziz (2023)
+// "Can Day Trading Really Be Profitable?" strategy — the single best-evidenced intraday
+// strategy in the public literature (41.6%/yr, Sharpe 2.8 on QQQ/TQQQ, 2016-2023).
+//
+// HONEST CAVEATS (read before trusting a single number on screen):
+//  - Win rate is ~24%. You LOSE most trades. It only works because the rare winner
+//    runs to 10R while losers cost 1R. Do NOT expect lots of green.
+//  - The paper charged commission but NO spread and NO slippage, and had no out-of-
+//    sample test. Independent replications reproduce the GROSS return but get ~NET
+//    ZERO after realistic costs (break-even at ~2.2 cents/share slippage on QQQ).
+//  - It was built for ultra-liquid US index ETFs. On single NSE stocks (wider spread)
+//    with a ~15-min delayed free feed, expect it to do WORSE than the paper.
+//  Use on a 5-MINUTE chart. Paper-trade; track the R total over weeks before any real size.
+//
+// RULES: first 5-min candle of the session = the opening range (OR).
+//   OR closed UP  -> go long when price breaks the OR high; stop at OR low.
+//   OR closed DOWN-> go short when price breaks the OR low;  stop at OR high.
+//   Target = 10R (configurable). One trade per day. Square off at 15:15 IST.
+indicator("ORB — Opening Range Breakout (NSE)", overlay=true, max_labels_count=200)
+
+// ===== Inputs =====
+orMinutes  = input.int(5, "Opening range (minutes)", options=[5, 15, 30], group="ORB")
+rTarget    = input.float(10.0, "Profit target (R multiple)", step=0.5, minval=1, group="ORB")
+sqHour     = input.int(15, "Square-off hour (IST)", group="Session")
+sqMin      = input.int(15, "Square-off minute (IST)", group="Session")
+
+// ===== Session clock (IST) =====
+tz    = "Asia/Kolkata"
+th    = hour(time, tz)
+tm    = minute(time, tz)
+minsSinceOpen = (th - 9) * 60 + (tm - 15)   // NSE opens 09:15 IST
+inOR    = minsSinceOpen >= 0 and minsSinceOpen < orMinutes
+afterOR = minsSinceOpen >= orMinutes
+sqOff   = (th > sqHour) or (th == sqHour and tm >= sqMin)
+newDay  = ta.change(time("D")) != 0
+
+// ===== Opening-range state (per day) =====
+var float orHigh     = na
+var float orLow      = na
+var float orOpen     = na   // open of the first OR bar
+var float orClose    = na   // close of the last OR bar
+var bool  tradedToday= false
+var int   pos        = 0    // 0 flat, 1 long, -1 short
+var float entry      = na
+var float stop       = na
+var float target     = na
+var float riskPts    = na
+
+if newDay
+    orHigh := na
+    orLow := na
+    orOpen := na
+    orClose := na
+    tradedToday := false
+    pos := 0
+    entry := na
+    stop := na
+    target := na
+    riskPts := na
+
+if inOR
+    orHigh := na(orHigh) ? high : math.max(orHigh, high)
+    orLow  := na(orLow)  ? low  : math.min(orLow, low)
+    orOpen := na(orOpen) ? open : orOpen
+    orClose := close
+
+orBull = not na(orClose) and not na(orOpen) and orClose > orOpen
+orBear = not na(orClose) and not na(orOpen) and orClose < orOpen
+
+// ===== Entry (breakout of the opening range, in the OR's direction) =====
+bool evLong  = false
+bool evShort = false
+canEnter = afterOR and not sqOff and not tradedToday and pos == 0 and not na(orHigh) and not na(orLow) and (orHigh - orLow) > 0
+if canEnter and orBull and high > orHigh
+    pos := 1
+    entry := orHigh
+    stop := orLow
+    riskPts := entry - stop
+    target := entry + rTarget * riskPts
+    tradedToday := true
+    evLong := true
+if canEnter and orBear and low < orLow
+    pos := -1
+    entry := orLow
+    stop := orHigh
+    riskPts := stop - entry
+    target := entry - rTarget * riskPts
+    tradedToday := true
+    evShort := true
+
+// ===== Exits: stop, target, or end-of-day square-off =====
+bool evStop   = false
+bool evTarget = false
+bool evSquare = false
+var float cumR     = 0.0   // running R across ALL days since the script loaded (week tracking)
+var float dayR     = 0.0
+var int   nTrades  = 0
+var int   nWins    = 0
+var int   nLosses  = 0
+if newDay
+    dayR := 0.0
+
+if pos == 1
+    if low <= stop
+        evStop := true
+        dayR := dayR - 1.0
+        cumR := cumR - 1.0
+        nTrades := nTrades + 1
+        nLosses := nLosses + 1
+        pos := 0
+    else if high >= target
+        evTarget := true
+        dayR := dayR + rTarget
+        cumR := cumR + rTarget
+        nTrades := nTrades + 1
+        nWins := nWins + 1
+        pos := 0
+    else if sqOff
+        evSquare := true
+        float rNow = (close - entry) / riskPts
+        dayR := dayR + rNow
+        cumR := cumR + rNow
+        nTrades := nTrades + 1
+        if rNow > 0
+            nWins := nWins + 1
+        else
+            nLosses := nLosses + 1
+        pos := 0
+else if pos == -1
+    if high >= stop
+        evStop := true
+        dayR := dayR - 1.0
+        cumR := cumR - 1.0
+        nTrades := nTrades + 1
+        nLosses := nLosses + 1
+        pos := 0
+    else if low <= target
+        evTarget := true
+        dayR := dayR + rTarget
+        cumR := cumR + rTarget
+        nTrades := nTrades + 1
+        nWins := nWins + 1
+        pos := 0
+    else if sqOff
+        evSquare := true
+        float rNow = (entry - close) / riskPts
+        dayR := dayR + rNow
+        cumR := cumR + rNow
+        nTrades := nTrades + 1
+        if rNow > 0
+            nWins := nWins + 1
+        else
+            nLosses := nLosses + 1
+        pos := 0
+
+// ===== Floating R of the open trade =====
+float floatR = na
+if pos == 1 and not na(riskPts) and riskPts > 0
+    floatR := (close - entry) / riskPts
+if pos == -1 and not na(riskPts) and riskPts > 0
+    floatR := (entry - close) / riskPts
+liveTotalR = cumR + (na(floatR) ? 0.0 : floatR)
+
+// ===== Plots =====
+plot(afterOR ? orHigh : na, "OR High", color.new(color.teal, 0), 2, plot.style_linebr)
+plot(afterOR ? orLow  : na, "OR Low",  color.new(color.teal, 0), 2, plot.style_linebr)
+plot(pos != 0 ? entry  : na, "Entry",  color.new(color.blue, 0),   2, plot.style_linebr)
+plot(pos != 0 ? stop   : na, "Stop",   color.new(color.red, 0),    2, plot.style_linebr)
+plot(pos != 0 ? target : na, "Target", color.new(color.green, 0),  2, plot.style_linebr)
+bgcolor(inOR ? color.new(color.gray, 85) : na, title="Opening range window")
+
+plotshape(evLong,   "Long entry",  shape.triangleup,   location.belowbar, color.new(color.green, 0), text="BUY",  size=size.small)
+plotshape(evShort,  "Short entry", shape.triangledown, location.abovebar, color.new(color.red, 0),   text="SELL", size=size.small)
+plotshape(evTarget, "Target hit",  shape.circle, location.abovebar, color.new(color.green, 0), text="10R", size=size.tiny)
+plotshape(evStop,   "Stop hit",    shape.xcross, location.belowbar, color.new(color.red, 0),   text="SL",  size=size.tiny)
+plotshape(evSquare, "EOD exit",    shape.square, location.abovebar, color.new(color.gray, 0),  text="EOD", size=size.tiny)
+
+// ===== Dashboard =====
+var table tb = table.new(position.top_right, 2, 8, border_width=1)
+if barstate.islast
+    state = pos == 1 ? "HOLDING LONG" : pos == -1 ? "HOLDING SHORT" : tradedToday ? "DONE for today" : inOR ? "Building opening range…" : afterOR and not sqOff ? "Waiting for breakout" : "Flat"
+    scol  = pos == 1 ? color.new(color.green, 20) : pos == -1 ? color.new(color.red, 20) : color.new(color.gray, 35)
+    table.cell(tb, 0, 0, "ORB (NSE)", text_color=color.white, bgcolor=color.new(color.black, 20))
+    table.cell(tb, 1, 0, state, text_color=color.white, bgcolor=scol)
+    table.cell(tb, 0, 1, "OR range", text_color=color.white, bgcolor=color.new(color.gray, 55))
+    table.cell(tb, 1, 1, na(orHigh) ? "—" : str.tostring(orLow, format.mintick) + " / " + str.tostring(orHigh, format.mintick) + (orBull ? "  ▲" : orBear ? "  ▼" : ""), text_color=color.silver)
+    table.cell(tb, 0, 2, "Entry / Stop", text_color=color.white, bgcolor=color.new(color.gray, 55))
+    table.cell(tb, 1, 2, pos == 0 ? "—" : str.tostring(entry, format.mintick) + " / " + str.tostring(stop, format.mintick), text_color=color.silver)
+    table.cell(tb, 0, 3, "Target (" + str.tostring(rTarget, "#.#") + "R)", text_color=color.white, bgcolor=color.new(color.gray, 55))
+    table.cell(tb, 1, 3, pos == 0 ? "—" : str.tostring(target, format.mintick), text_color=color.silver)
+    table.cell(tb, 0, 4, "Open trade (R)", text_color=color.white, bgcolor=color.new(color.gray, 55))
+    table.cell(tb, 1, 4, na(floatR) ? "flat" : str.tostring(floatR, "#.00") + "R", text_color = na(floatR) ? color.silver : floatR > 0 ? color.lime : color.red)
+    table.cell(tb, 0, 5, "Today (R)", text_color=color.white, bgcolor=color.new(color.gray, 55))
+    table.cell(tb, 1, 5, str.tostring(dayR, "#.00") + "R", text_color = dayR > 0 ? color.lime : dayR < 0 ? color.red : color.silver)
+    table.cell(tb, 0, 6, "LIVE total (R)", text_color=color.white, bgcolor=color.new(color.gray, 40))
+    table.cell(tb, 1, 6, str.tostring(liveTotalR, "#.00") + "R", text_color = liveTotalR > 0 ? color.lime : liveTotalR < 0 ? color.red : color.silver, bgcolor=color.new(color.gray, 40))
+    table.cell(tb, 0, 7, "Trades (W/L)", text_color=color.white, bgcolor=color.new(color.gray, 55))
+    table.cell(tb, 1, 7, str.tostring(nTrades) + " (" + str.tostring(nWins) + "/" + str.tostring(nLosses) + ")  win " + (nTrades > 0 ? str.tostring(100.0 * nWins / nTrades, "#") + "%" : "—"), text_color=color.silver)
+
+// ===== Alerts =====
+if evLong
+    alert("ORB LONG " + syminfo.ticker + " @" + str.tostring(entry, format.mintick) + " SL " + str.tostring(stop, format.mintick) + " T " + str.tostring(target, format.mintick), alert.freq_once_per_bar_close)
+if evShort
+    alert("ORB SHORT " + syminfo.ticker + " @" + str.tostring(entry, format.mintick) + " SL " + str.tostring(stop, format.mintick) + " T " + str.tostring(target, format.mintick), alert.freq_once_per_bar_close)
+if evTarget
+    alert("ORB TARGET hit (" + str.tostring(rTarget, "#.#") + "R) " + syminfo.ticker + " — exit", alert.freq_once_per_bar_close)
+if evStop
+    alert("ORB STOP hit (-1R) " + syminfo.ticker + " — exit", alert.freq_once_per_bar_close)
+if evSquare
+    alert("ORB square-off " + syminfo.ticker + " — exit at close", alert.freq_once_per_bar_close)
