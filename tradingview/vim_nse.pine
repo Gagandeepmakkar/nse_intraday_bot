@@ -1,0 +1,283 @@
+//@version=6
+// VIM — Volatility-normalized Intraday Momentum (NSE). A math-first intraday strategy
+// synthesized from 13 pieces of published research, not another indicator soup. The
+// design follows one honest conclusion from that literature: entry signals are weak
+// (NSE opening-range breakouts test at p~0.45-0.50, i.e. no better than random; intraday
+// momentum has R^2~1%), so the edge CANNOT come from a cleverer trigger. It has to come
+// from the three things the math actually supports:
+//   1) CONVEX EXITS  — small fixed loss, trail winners (Chandelier/LeBeau; Moskowitz-Ooi-
+//      Pedersen 2012). Expectancy E = p*avgWin - (1-p)*avgLoss goes positive from a big
+//      avgWin, not a high win rate. A few large winners pay for many small losses.
+//   2) VOLATILITY TARGETING — size position inversely to ATR so every trade risks the same
+//      fraction of equity (Moreira-Muir 2017, "Volatility-Managed Portfolios").
+//   3) SIGNAL DIVERSIFICATION — combine momentum (direction) with short-term reversal
+//      (entry timing). They are negatively correlated, so per the Fundamental Law of Active
+//      Management (IR = IC*sqrt(N)) the combination beats either alone (Jegadeesh 1990).
+// Plus KELLY sizing (f* = W - (1-W)/R, use quarter-Kelly) shown live from YOUR trades.
+//
+// HONEST LIMITS: this stacks the sound levers to give the best CHANCE; it does not
+// manufacture a guarantee. On NSE single stocks with retail costs and a ~15-min delayed
+// free feed, the published edge is thin-to-zero. The dashboard tracks real R, expectancy,
+// and Kelly so YOU can measure whether an edge actually exists over weeks. Use on a
+// 5-min chart. Paper-trade. The number that matters is the LIVE total R after many trades.
+indicator("VIM — Volatility Intraday Momentum (NSE)", overlay=true, max_labels_count=200)
+
+// ===== Inputs =====
+orMinutes = input.int(20, "Opening range (minutes)", options=[15, 20, 30], group="Signal")
+atrLen    = input.int(14, "ATR length", group="Signal")
+emaLen    = input.int(9,  "Pullback EMA", group="Signal")
+maxTrades = input.int(2,  "Max trades per day", minval=1, group="Signal")
+stopATR   = input.float(1.2, "Stop distance (ATR) = 1R", step=0.1, minval=0.3, group="Risk")
+scaleR    = input.float(1.0, "Scale out 1/3 at (R)", step=0.5, minval=0.5, group="Risk")
+trailATR  = input.float(3.0, "Chandelier trail (ATR)", step=0.5, minval=1, group="Risk")
+sqHour    = input.int(15, "Square-off hour (IST)", group="Session")
+sqMin     = input.int(15, "Square-off minute (IST)", group="Session")
+equity    = input.float(100000, "Account equity (Rs) for sizing", group="Sizing")
+riskPct   = input.float(0.5, "Risk % of equity per trade", step=0.1, group="Sizing")
+
+// ===== Scale-free foundation + anchors =====
+atr  = ta.atr(atrLen)
+ema  = ta.ema(close, emaLen)
+vwap = ta.vwap(hlc3)
+plot(vwap, "VWAP", color.new(color.blue, 0), 1)
+plot(ema,  "EMA",  color.new(color.orange, 40), 1)
+
+// ===== Session clock (IST) =====
+tz = "Asia/Kolkata"
+th = hour(time, tz)
+tm = minute(time, tz)
+minsSinceOpen = (th - 9) * 60 + (tm - 15)
+inOR    = minsSinceOpen >= 0 and minsSinceOpen < orMinutes
+afterOR = minsSinceOpen >= orMinutes
+sqOff   = (th > sqHour) or (th == sqHour and tm >= sqMin)
+newDay  = ta.change(time("D")) != 0
+
+// ===== Opening range (per day) =====
+var float orHigh = na
+var float orLow  = na
+var float orOpen = na
+var float orClose= na
+var int   tradesToday = 0
+if newDay
+    orHigh := na
+    orLow := na
+    orOpen := na
+    orClose := na
+    tradesToday := 0
+if inOR
+    orHigh := na(orHigh) ? high : math.max(orHigh, high)
+    orLow  := na(orLow)  ? low  : math.min(orLow, low)
+    orOpen := na(orOpen) ? open : orOpen
+    orClose := close
+
+// ===== Momentum direction (composite, NSE-evidenced): OR sign AND side of VWAP =====
+orBull = not na(orClose) and not na(orOpen) and orClose > orOpen
+orBear = not na(orClose) and not na(orOpen) and orClose < orOpen
+momUp  = afterOR and orBull and close > vwap and not na(orHigh) and (orHigh - orLow) > 0
+momDn  = afterOR and orBear and close < vwap and not na(orLow)  and (orHigh - orLow) > 0
+
+// ===== Trade state =====
+var int   pos        = 0      // 0 flat, 1 long, -1 short
+var float entry      = na
+var float riskPts    = na     // 1R in price = stopATR*atr at entry (fixed)
+var float origStop   = na
+var float hh         = na     // highest high since entry (long trail)
+var float ll         = na     // lowest low since entry (short trail)
+var bool  scaledOut  = false
+var float tradeR     = 0.0    // running realized R of the CURRENT trade
+var bool  armedLong  = false  // a pullback has occurred in an up regime (reversal timing)
+var bool  armedShort = false
+
+if newDay
+    pos := 0
+    entry := na
+    scaledOut := false
+
+// arm on a pullback into EMA (short-term reversal timing inside the momentum regime)
+if pos == 0 and momUp and close < ema
+    armedLong := true
+if pos == 0 and momDn and close > ema
+    armedShort := true
+if not momUp
+    armedLong := false
+if not momDn
+    armedShort := false
+
+canTrade = afterOR and not sqOff and tradesToday < maxTrades
+longEntry  = canTrade and pos == 0 and momUp and armedLong  and ta.crossover(close, ema)
+shortEntry = canTrade and pos == 0 and momDn and armedShort and ta.crossunder(close, ema)
+
+bool evLong  = false
+bool evShort = false
+if longEntry
+    pos := 1
+    entry := close
+    riskPts := stopATR * atr
+    origStop := entry - riskPts
+    hh := high
+    scaledOut := false
+    tradeR := 0.0
+    tradesToday := tradesToday + 1
+    armedLong := false
+    evLong := true
+if shortEntry
+    pos := -1
+    entry := close
+    riskPts := stopATR * atr
+    origStop := entry + riskPts
+    ll := low
+    scaledOut := false
+    tradeR := 0.0
+    tradesToday := tradesToday + 1
+    armedShort := false
+    evShort := true
+
+// ===== Convex exit: fixed stop -> scale 1/3 at +1R -> Chandelier-trail the remainder =====
+bool evScale = false
+bool evStop  = false
+bool evTrail = false
+bool evEOD   = false
+var float cumR    = 0.0   // across all days since load (week tracking)
+var float dayR    = 0.0
+var int   nTrades = 0
+var int   nWins   = 0
+var float sumWinR = 0.0
+var float sumLossR= 0.0   // positive magnitude
+if newDay
+    dayR := 0.0
+
+// Pine functions can't reassign global var state, so the trade-accounting is inlined.
+bool doFinalize = false
+if pos == 1
+    hh := math.max(hh, high)
+    chand = hh - trailATR * atr
+    trailStop = scaledOut ? math.max(entry, chand) : origStop
+    // scale 1/3 at +1R
+    if not scaledOut and high >= entry + scaleR * riskPts
+        scaledOut := true
+        tradeR := tradeR + (1.0 / 3.0) * scaleR
+        evScale := true
+    // exit remainder (full size if we never scaled out, else the remaining 2/3)
+    float remFrac = scaledOut ? (2.0 / 3.0) : 1.0
+    if low <= trailStop
+        tradeR := tradeR + remFrac * (trailStop - entry) / riskPts
+        if scaledOut
+            evTrail := true
+        else
+            evStop := true
+        doFinalize := true
+        pos := 0
+    else if sqOff
+        tradeR := tradeR + remFrac * (close - entry) / riskPts
+        evEOD := true
+        doFinalize := true
+        pos := 0
+else if pos == -1
+    ll := math.min(ll, low)
+    chandS = ll + trailATR * atr
+    trailStopS = scaledOut ? math.min(entry, chandS) : origStop
+    if not scaledOut and low <= entry - scaleR * riskPts
+        scaledOut := true
+        tradeR := tradeR + (1.0 / 3.0) * scaleR
+        evScale := true
+    float remFracS = scaledOut ? (2.0 / 3.0) : 1.0
+    if high >= trailStopS
+        tradeR := tradeR + remFracS * (entry - trailStopS) / riskPts
+        if scaledOut
+            evTrail := true
+        else
+            evStop := true
+        doFinalize := true
+        pos := 0
+    else if sqOff
+        tradeR := tradeR + remFracS * (entry - close) / riskPts
+        evEOD := true
+        doFinalize := true
+        pos := 0
+
+if doFinalize
+    nTrades := nTrades + 1
+    cumR := cumR + tradeR
+    dayR := dayR + tradeR
+    if tradeR > 0
+        nWins := nWins + 1
+        sumWinR := sumWinR + tradeR
+    else
+        sumLossR := sumLossR + (-tradeR)
+
+// ===== Live stats: expectancy, Kelly, floating R, sizing =====
+float floatR = na
+if pos == 1 and not na(riskPts) and riskPts > 0
+    unreal = (close - entry) / riskPts
+    floatR := scaledOut ? tradeR + (2.0 / 3.0) * unreal : unreal
+if pos == -1 and not na(riskPts) and riskPts > 0
+    unrealS = (entry - close) / riskPts
+    floatR := scaledOut ? tradeR + (2.0 / 3.0) * unrealS : unrealS
+liveTotalR = cumR + (na(floatR) ? 0.0 : floatR)
+
+p        = nTrades > 0 ? nWins / nTrades : na
+avgWinR  = nWins > 0 ? sumWinR / nWins : na
+nLoss    = nTrades - nWins
+avgLossR = nLoss > 0 ? sumLossR / nLoss : na
+expectancy = nTrades > 0 and not na(avgLossR) and not na(avgWinR) ? p * avgWinR - (1 - p) * avgLossR : na
+payoff   = not na(avgWinR) and not na(avgLossR) and avgLossR > 0 ? avgWinR / avgLossR : na
+kelly    = not na(p) and not na(payoff) and payoff > 0 ? p - (1 - p) / payoff : na
+qKelly   = not na(kelly) ? math.max(0.0, kelly) / 4.0 : na   // quarter-Kelly, floored at 0
+
+stopDist = stopATR * atr
+shares   = stopDist > 0 ? math.floor((riskPct / 100.0 * equity) / stopDist) : na
+rupeeRisk= riskPct / 100.0 * equity
+
+// ===== Level plots =====
+curStop = pos == 1 ? (scaledOut ? math.max(entry, hh - trailATR * atr) : origStop) : pos == -1 ? (scaledOut ? math.min(entry, ll + trailATR * atr) : origStop) : na
+plot(pos != 0 ? entry   : na, "Entry", color.new(color.blue, 0), 2, plot.style_linebr)
+plot(pos != 0 ? curStop : na, "Stop/Trail", color.new(color.red, 0), 2, plot.style_linebr)
+bgcolor(inOR ? color.new(color.gray, 85) : na, title="Opening range")
+plotshape(evLong,  "Long",  shape.triangleup,   location.belowbar, color.new(color.green, 0), text="BUY",   size=size.small)
+plotshape(evShort, "Short", shape.triangledown, location.abovebar, color.new(color.red, 0),   text="SELL",  size=size.small)
+plotshape(evScale, "Scale", shape.circle, location.abovebar, color.new(color.yellow, 0), text="+1R", size=size.tiny)
+plotshape(evTrail, "Trail exit", shape.diamond, location.abovebar, color.new(color.green, 0), text="TR", size=size.tiny)
+plotshape(evStop,  "Stop",  shape.xcross, location.belowbar, color.new(color.red, 0), text="SL", size=size.tiny)
+plotshape(evEOD,   "EOD",   shape.square, location.abovebar, color.new(color.gray, 0), text="EOD", size=size.tiny)
+
+// ===== Dashboard =====
+var table tb = table.new(position.top_right, 2, 11, border_width=1)
+if barstate.islast
+    state = pos == 1 ? "HOLDING LONG" : pos == -1 ? "HOLDING SHORT" : inOR ? "Building range…" : momUp ? "Up regime — wait pullback" : momDn ? "Down regime — wait pullback" : "Flat / no regime"
+    scol  = pos == 1 ? color.new(color.green, 20) : pos == -1 ? color.new(color.red, 20) : color.new(color.gray, 35)
+    table.cell(tb, 0, 0, "VIM (NSE)", text_color=color.white, bgcolor=color.new(color.black, 20))
+    table.cell(tb, 1, 0, state, text_color=color.white, bgcolor=scol)
+    table.cell(tb, 0, 1, "Regime", text_color=color.white, bgcolor=color.new(color.gray, 55))
+    table.cell(tb, 1, 1, momUp ? "UP (long only)" : momDn ? "DOWN (short only)" : "none", text_color = momUp ? color.lime : momDn ? color.red : color.silver)
+    table.cell(tb, 0, 2, "Entry / Stop", text_color=color.white, bgcolor=color.new(color.gray, 55))
+    table.cell(tb, 1, 2, pos == 0 ? "—" : str.tostring(entry, format.mintick) + " / " + str.tostring(curStop, format.mintick), text_color=color.silver)
+    table.cell(tb, 0, 3, "Size (" + str.tostring(riskPct, "#.#") + "% = Rs" + str.tostring(rupeeRisk, "#") + ")", text_color=color.white, bgcolor=color.new(color.gray, 55))
+    table.cell(tb, 1, 3, na(shares) ? "—" : str.tostring(shares) + " sh", text_color=color.aqua)
+    table.cell(tb, 0, 4, "Open trade (R)", text_color=color.white, bgcolor=color.new(color.gray, 55))
+    table.cell(tb, 1, 4, na(floatR) ? "flat" : str.tostring(floatR, "#.00") + "R", text_color = na(floatR) ? color.silver : floatR > 0 ? color.lime : color.red)
+    table.cell(tb, 0, 5, "Today (R)", text_color=color.white, bgcolor=color.new(color.gray, 55))
+    table.cell(tb, 1, 5, str.tostring(dayR, "#.00") + "R", text_color = dayR > 0 ? color.lime : dayR < 0 ? color.red : color.silver)
+    table.cell(tb, 0, 6, "LIVE total (R)", text_color=color.white, bgcolor=color.new(color.gray, 40))
+    table.cell(tb, 1, 6, str.tostring(liveTotalR, "#.00") + "R", text_color = liveTotalR > 0 ? color.lime : liveTotalR < 0 ? color.red : color.silver, bgcolor=color.new(color.gray, 40))
+    table.cell(tb, 0, 7, "Trades (W/L)", text_color=color.white, bgcolor=color.new(color.gray, 55))
+    table.cell(tb, 1, 7, str.tostring(nTrades) + " (" + str.tostring(nWins) + "/" + str.tostring(nLoss) + ")  win " + (nTrades > 0 ? str.tostring(100.0 * nWins / nTrades, "#") + "%" : "—"), text_color=color.silver)
+    table.cell(tb, 0, 8, "Avg win / loss (R)", text_color=color.white, bgcolor=color.new(color.gray, 55))
+    table.cell(tb, 1, 8, (na(avgWinR) ? "—" : str.tostring(avgWinR, "#.00")) + " / " + (na(avgLossR) ? "—" : str.tostring(avgLossR, "#.00")), text_color=color.silver)
+    table.cell(tb, 0, 9, "Expectancy (R/trade)", text_color=color.white, bgcolor=color.new(color.gray, 40))
+    table.cell(tb, 1, 9, na(expectancy) ? "need trades" : str.tostring(expectancy, "#.000") + "R", text_color = na(expectancy) ? color.silver : expectancy > 0 ? color.lime : color.red, bgcolor=color.new(color.gray, 40))
+    table.cell(tb, 0, 10, "Kelly f* / suggested", text_color=color.white, bgcolor=color.new(color.gray, 55))
+    table.cell(tb, 1, 10, na(kelly) ? "—" : str.tostring(100 * kelly, "#.#") + "% / " + str.tostring(100 * qKelly, "#.#") + "% (¼K)", text_color = na(kelly) ? color.silver : kelly > 0 ? color.lime : color.red)
+
+// ===== Alerts =====
+if evLong
+    alert("VIM LONG " + syminfo.ticker + " @" + str.tostring(entry, format.mintick) + " SL " + str.tostring(origStop, format.mintick) + " (1R=" + str.tostring(riskPts, format.mintick) + ", size " + str.tostring(shares) + " sh)", alert.freq_once_per_bar_close)
+if evShort
+    alert("VIM SHORT " + syminfo.ticker + " @" + str.tostring(entry, format.mintick) + " SL " + str.tostring(origStop, format.mintick) + " (1R=" + str.tostring(riskPts, format.mintick) + ", size " + str.tostring(shares) + " sh)", alert.freq_once_per_bar_close)
+if evScale
+    alert("VIM +1R " + syminfo.ticker + " — book 1/3, trailing the rest", alert.freq_once_per_bar_close)
+if evTrail
+    alert("VIM trail exit " + syminfo.ticker + " — winner closed", alert.freq_once_per_bar_close)
+if evStop
+    alert("VIM stop (-1R) " + syminfo.ticker + " — exit", alert.freq_once_per_bar_close)
+if evEOD
+    alert("VIM square-off " + syminfo.ticker + " — exit at close", alert.freq_once_per_bar_close)
