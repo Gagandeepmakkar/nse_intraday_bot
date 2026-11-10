@@ -67,6 +67,13 @@ async function sendNtfy(topic, title, text) {
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
     try {
+      if (msg.__log) {
+        try {
+          const r = await fetch("http://127.0.0.1:8787/log", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ events: msg.events }) });
+          sendResponse({ ok: r.ok });
+        } catch (e) { sendResponse({ ok: false }); }   // server not running — kept in chrome.storage, synced later
+        return;
+      }
       if (msg.__ntfy) { const ok = await sendNtfy(msg.topic, msg.title, msg.text); sendResponse({ ok }); return; }
       if (msg.__tgConnect) { const chat = await telegramChatId(msg.token); sendResponse({ ok: !!chat, chat }); return; }
       if (msg.__tg) { const res = await sendTelegram(msg.token, msg.chat, msg.text); sendResponse({ ok: !!(res && res.ok), desc: res && res.description }); return; }

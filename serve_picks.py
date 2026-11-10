@@ -8,6 +8,7 @@ Run: python serve_picks.py      (or ./run.sh serve)
 """
 import json
 import sqlite3
+from datetime import datetime, timezone
 from urllib.parse import urlparse, parse_qs
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -15,6 +16,37 @@ import analyze as analyzer
 
 DB = "signals.db"
 PORT = 8787
+JOURNAL = "journal.jsonl"   # append-only record of every signal/outcome the extension emits
+
+
+def append_log(events):
+    """Append one or more event dicts as JSON lines, de-duplicated by (event,t,sym)."""
+    if isinstance(events, dict):
+        events = [events]
+    seen = set()
+    try:
+        with open(JOURNAL, "r", encoding="utf-8") as f:
+            for line in f:
+                try:
+                    e = json.loads(line)
+                    seen.add((e.get("event"), e.get("t"), e.get("sym")))
+                except Exception:
+                    pass
+    except FileNotFoundError:
+        pass
+    wrote = 0
+    with open(JOURNAL, "a", encoding="utf-8") as f:
+        for e in events:
+            if not isinstance(e, dict):
+                continue
+            k = (e.get("event"), e.get("t"), e.get("sym"))
+            if k in seen:
+                continue
+            seen.add(k)
+            e.setdefault("logged_at", datetime.now(timezone.utc).isoformat())
+            f.write(json.dumps(e) + "\n")
+            wrote += 1
+    return wrote
 
 
 def latest_picks():
@@ -44,6 +76,20 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_OPTIONS(self):
         self._send(204)
+
+    def do_POST(self):
+        parsed = urlparse(self.path)
+        if not parsed.path.startswith("/log"):
+            self._send(404, b'{"error":"not found"}')
+            return
+        try:
+            n = int(self.headers.get("Content-Length", 0))
+            payload = json.loads(self.rfile.read(n) or b"{}")
+            events = payload.get("events", payload)
+            wrote = append_log(events)
+            self._send(200, json.dumps({"ok": True, "wrote": wrote}).encode())
+        except Exception as e:
+            self._send(400, json.dumps({"ok": False, "error": str(e)}).encode())
 
     def do_GET(self):
         parsed = urlparse(self.path)

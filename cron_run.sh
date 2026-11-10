@@ -8,13 +8,23 @@ LOG="cron.log"
 {
   echo "===== $(date '+%Y-%m-%d %H:%M:%S %Z') ====="
   source .venv/bin/activate
+  HM="$((10#$(TZ=Asia/Kolkata date +%H%M)))"
+  # Keep the log/pick server up so the extension can record every signal + outcome to
+  # journal.jsonl. Started once (persists via nohup); re-checked each slot.
+  if ! curl -s -o /dev/null --max-time 2 http://127.0.0.1:8787/picks; then
+    nohup python serve_picks.py >> serve.log 2>&1 &
+    sleep 1
+  fi
   python track.py || true          # grade yesterday's picks
-  # Pre-market intelligence briefing — only in the first (pre-open) slot of the day,
-  # when BRIEF_SYMBOLS is configured in .env. Pushes to phone (ntfy) + email.
-  if [ "$((10#$(TZ=Asia/Kolkata date +%H%M)))" -lt 915 ]; then
+  # Pre-market intelligence briefing — only in the pre-open slot, if BRIEF_SYMBOLS set.
+  if [ "$HM" -lt 915 ]; then
     python briefing.py --ntfy --email || echo "briefing.py exited non-zero"
   fi
   python bot.py || echo "bot.py exited non-zero"
+  # After market close: self-audit the recorded signals/outcomes and send the report.
+  if [ "$HM" -ge 1535 ]; then
+    python audit.py --ntfy --email || echo "audit.py exited non-zero"
+  fi
 } >> "$LOG" 2>&1
 
 # Pull the latest picks and only act if they were written in the last 10 minutes.

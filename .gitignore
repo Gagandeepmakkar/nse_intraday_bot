@@ -7,3 +7,4 @@ __pycache__/
 signals.db
 dashboard.html
 risk_state.json
+journal.jsonl

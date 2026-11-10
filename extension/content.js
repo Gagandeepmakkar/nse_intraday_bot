@@ -86,6 +86,16 @@
     if (!CFG.ntfyTopic) return;
     try { chrome.runtime.sendMessage({ __ntfy: true, topic: CFG.ntfyTopic, title: title, text: body }); } catch (e) {}
   }
+  // Auto-record every signal + outcome to the local log file (via the 8787 server).
+  // Fire-and-forget: if the server is down, the data still lives in chrome.storage and
+  // the periodic syncJournal() re-sends the whole journal (server de-dupes).
+  function logEvent(ev) {
+    try { chrome.runtime.sendMessage({ __log: true, events: [ev] }); } catch (e) {}
+  }
+  function syncJournal() {
+    if (!JOURNAL.length) return;
+    try { chrome.runtime.sendMessage({ __log: true, events: JOURNAL.map(j => Object.assign({ event: "close" }, j)) }); } catch (e) {}
+  }
   function telegram(text) {
     if (!CFG.tgToken || !CFG.tgChat) return;
     try { chrome.runtime.sendMessage({ __tg: true, token: CFG.tgToken, chat: CFG.tgChat, text: text }); } catch (e) {}
@@ -276,7 +286,9 @@
   function closeTrade(R, reason) {
     STATS.trades++; STATS.cumR += R;
     if (R > 0) { STATS.wins++; STATS.sumWinR += R; } else { STATS.losses++; STATS.sumLossR += -R; }
-    JOURNAL.push({ t: Date.now(), sym: S.symbol, side: S.phase === 1 ? "LONG" : "SHORT", entry: +S.entry0.toFixed(2), stop: +S.stop0.toFixed(2), exit: reason, R: +R.toFixed(2) });
+    const rec = { t: Date.now(), sym: S.symbol, side: S.phase === 1 ? "LONG" : "SHORT", entry: +S.entry0.toFixed(2), stop: +S.stop0.toFixed(2), exit: reason, R: +R.toFixed(2) };
+    JOURNAL.push(rec);
+    logEvent(Object.assign({ event: "close", tf: S.interval, strat: CFG.strategy }, rec));
     saveStats(); renderStats(); renderJournal();
     reset();
   }
@@ -293,6 +305,7 @@
         S.entry = d.levels.entry; S.stop = d.levels.stop; S.t1 = d.levels.target1; S.t2 = d.levels.target2;
         S.entry0 = S.entry; S.stop0 = S.stop;
         S.t1done = false; S.eScore = d.score;
+        logEvent({ event: "signal", t: Date.now(), sym: S.symbol, side: d.action === "BUY" ? "LONG" : "SHORT", entry: +S.entry.toFixed(2), stop: +S.stop.toFixed(2), t1: +S.t1.toFixed(2), t2: +S.t2.toFixed(2), score: d.score, regime: d.regime, nearRes: d.nearRes, nearSup: d.nearSup, tf: S.interval, strat: CFG.strategy });
         notify((d.action === "BUY" ? "🟢 BUY " : "🔴 SELL ") + S.symbol, "@" + S.entry.toFixed(2) + "  SL " + S.stop.toFixed(2) + "  T1 " + S.t1.toFixed(2) + "  T2 " + S.t2.toFixed(2) + "  · " + S.shares + " sh");
       }
     } else {
@@ -441,6 +454,7 @@
       setInterval(refresh, 5000);   // setup/signal on closed bars (no rate-limit risk at 5s)
       setInterval(tick, 1000);      // live price + real-time exits, read off the page (no network)
       setInterval(ensurePanel, 3000);
+      setInterval(syncJournal, 120000);   // re-sync the full journal to the log file every 2 min
       setTimeout(refresh, 2500);
       window.addEventListener("resize", () => { if (S.chart && $("nlc-chart")) S.chart.applyOptions({ width: $("nlc-chart").clientWidth }); });
     }));
