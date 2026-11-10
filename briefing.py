@@ -138,36 +138,6 @@ def ai_news(symbol, headlines):
         return None
 
 
-def ai_gameplan(symbol, ctx):
-    """AI turns the DETERMINISTIC technicals into a plain-English if-then game plan.
-    It organizes/explains the levels — it does NOT predict direction. None if no key."""
-    key = os.getenv("GEMINI_API_KEY", "").strip()
-    if not key:
-        return None
-    model = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
-    prompt = (
-        f"You are a disciplined intraday trading COACH for NSE stock {symbol}. "
-        "Using ONLY the computed technicals below, write a 3-4 line game plan for today as "
-        "IF-THEN level scenarios a trader can act on. Rules: do NOT predict direction, do "
-        "NOT guarantee outcomes, do NOT invent levels — only reference the numbers given. "
-        "Be concrete and concise.\n"
-        f"Trend: {ctx['trend']}\nPrice: {ctx['price']}\nRSI: {ctx['rsi']}\n"
-        f"Expected day range (ATR): +/-{ctx['atr']}\nPivot: {ctx['pivot']}\n"
-        f"Resistances: {ctx['res']}\nSupports: {ctx['sup']}\n20-day range: {ctx['lo']}-{ctx['hi']}"
-    )
-    body = json.dumps({"contents": [{"parts": [{"text": prompt}]}]}).encode()
-    url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
-           f"{model}:generateContent?key={key}")
-    try:
-        req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=20) as r:
-            data = json.load(r)
-        return data["candidates"][0]["content"]["parts"][0]["text"].strip()
-    except Exception as e:
-        print(f"  (AI game plan unavailable: {e})", file=sys.stderr)
-        return None
-
-
 def analyse(symbol):
     df = fetch_daily(symbol)
     if df is None or len(df) < 30:
@@ -230,17 +200,6 @@ def analyse(symbol):
         for f in filings:
             out.append(f"- 📄 {f}")
 
-    plan = ai_gameplan(symbol, {
-        "trend": trend, "price": f"{price:,.2f}", "rsi": f"{r:.0f}", "atr": f"{a:,.1f}",
-        "pivot": f"{piv['pivot']:,.1f}",
-        "res": f"R3 {piv['cam_h3']:,.1f}, R4 {piv['cam_h4']:,.1f}, 20d-high {hi20:,.1f}",
-        "sup": f"S3 {piv['cam_l3']:,.1f}, S4 {piv['cam_l4']:,.1f}, 20d-low {lo20:,.1f}",
-        "lo": f"{lo20:,.1f}", "hi": f"{hi20:,.1f}",
-    })
-    if plan:
-        out.append("")
-        out.append("**🤖 AI game plan (level scenarios — not a prediction):**")
-        out.append(plan)
     out.append("")
     return "\n".join(out)
 
