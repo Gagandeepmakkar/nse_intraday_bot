@@ -57,7 +57,9 @@ async function telegramChatId(token) {
 // Free phone push via ntfy.sh — no account, just a topic name.
 async function sendNtfy(topic, title, text) {
   const r = await fetch("https://ntfy.sh/" + encodeURIComponent(topic), {
-    method: "POST", headers: { "Title": title || "VIM", "Tags": "chart_with_upwards_trend" }, body: text || ""
+    method: "POST",
+    headers: { "Title": title || "VIM", "Priority": "high", "Tags": "chart_with_upwards_trend" },
+    body: text || ""
   });
   return r.ok;
 }
