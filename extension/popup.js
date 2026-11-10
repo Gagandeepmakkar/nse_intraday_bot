@@ -5,12 +5,12 @@
 const DEFAULTS = {
   strategy: "vim", interval: 5, orMinutes: 20, minADX: 20, stopATR: 1.2, r1: 1.0, r2: 3.0,
   equity: 100000, riskPct: 0.5, sound: true, alerts: true, maxTrades: 3, maxLossR: 2.0,
-  tgToken: "", tgChat: ""
+  ntfyTopic: "", tgToken: "", tgChat: ""
 };
 const $ = (id) => document.getElementById(id);
 const NUMS = ["equity", "riskPct", "orMinutes", "minADX", "stopATR", "r1", "r2", "maxTrades", "maxLossR"];
 const SELS = ["strategy", "interval"];
-const TXTS = ["tgToken", "tgChat"];
+const TXTS = ["ntfyTopic", "tgToken", "tgChat"];
 const CHKS = ["sound", "alerts"];
 let CFG = Object.assign({}, DEFAULTS);
 
@@ -70,6 +70,11 @@ function exportCsv() {
   });
 }
 
+$("ntfytest").onclick = () => {
+  const topic = $("ntfyTopic").value.trim();
+  if (!topic) { $("status").textContent = "enter a topic name"; return; }
+  chrome.runtime.sendMessage({ __ntfy: true, topic, title: "VIM test", text: "✅ Phone alerts work — subscribe to this topic in the ntfy app." }, (r) => { $("status").textContent = (r && r.ok) ? "sent ✓ — check phone" : "ntfy failed"; });
+};
 $("save").onclick = save;
 $("exp").onclick = exportCsv;
 $("clr").onclick = () => {

@@ -27,9 +27,8 @@
     equity: 100000, riskPct: 0.5,
     sound: true, alerts: true,
     maxTrades: 3, maxLossR: 2.0,     // daily kill-switch
-    // Telegram: paste your bot token in Settings ONCE — it persists in chrome.storage
-    // forever (never committed, so it stays off GitHub). Press Start in your bot, then
-    // "Connect" auto-fills the chat id. Default left blank on purpose for security.
+    // Phone push. ntfy = easiest (just a topic name, no login). Telegram = optional.
+    ntfyTopic: "",
     tgToken: "", tgChat: ""
   };
   let CFG = Object.assign({}, DEFAULTS);
@@ -81,6 +80,11 @@
     try { if (window.Notification && Notification.permission === "granted") new Notification(title, { body, silent: !CFG.sound }); } catch (e) {}
     if (CFG.sound) beep();
     telegram(title + " — " + body);
+    ntfy(title, body);
+  }
+  function ntfy(title, body) {
+    if (!CFG.ntfyTopic) return;
+    try { chrome.runtime.sendMessage({ __ntfy: true, topic: CFG.ntfyTopic, title: title, text: body }); } catch (e) {}
   }
   function telegram(text) {
     if (!CFG.tgToken || !CFG.tgChat) return;
@@ -130,7 +134,10 @@
         '</div>' +
         '<label class="nlc-chk"><input type="checkbox" id="set-sound"> Sound</label>' +
         '<label class="nlc-chk"><input type="checkbox" id="set-alerts"> Desktop alerts</label>' +
-        '<div class="nlc-tg">Free Telegram alerts (optional):' +
+        '<div class="nlc-tg">📱 Phone push — ntfy (easiest, no login):' +
+          '<input id="set-ntfy" placeholder="your secret topic e.g. gagan-vim-9f3k2">' +
+          '<button id="set-ntfytest" class="nlc-mini">Test phone</button></div>' +
+        '<div class="nlc-tg">Telegram alerts (optional):' +
           '<input id="set-tgtoken" placeholder="bot token"><input id="set-tgchat" placeholder="chat id">' +
           '<button id="set-tgtest" class="nlc-mini">Test</button></div>' +
         '<button id="set-save" class="nlc-save">Save settings</button>' +
@@ -162,6 +169,12 @@
     $("nlc-exp").onclick = exportCsv;
     $("nlc-clr").onclick = () => { if (confirm("Reset today's stats and journal?")) { STATS = { day: todayStr(), trades: 0, wins: 0, losses: 0, cumR: 0, sumWinR: 0, sumLossR: 0 }; JOURNAL = []; saveStats(); renderStats(); renderJournal(); } };
     $("set-save").onclick = readSettingsUI;
+    $("set-ntfytest").onclick = () => {
+      CFG.ntfyTopic = $("set-ntfy").value.trim();
+      if (!CFG.ntfyTopic) { $("nlc-status").textContent = "enter a topic name"; return; }
+      saveCfg();
+      try { chrome.runtime.sendMessage({ __ntfy: true, topic: CFG.ntfyTopic, title: "VIM test", text: "✅ Phone alerts work — subscribe to this topic in the ntfy app." }, (r) => { $("nlc-status").textContent = (r && r.ok) ? "ntfy ✓ sent — check your phone" : "ntfy failed"; }); } catch (e) {}
+    };
     $("set-tgtest").onclick = () => {
       CFG.tgToken = $("set-tgtoken").value.trim(); CFG.tgChat = $("set-tgchat").value.trim();
       if (!CFG.tgToken) { $("nlc-status").textContent = "paste the bot token"; return; }
@@ -190,6 +203,7 @@
     $("set-adx").value = CFG.minADX; $("set-stop").value = CFG.stopATR; $("set-r1").value = CFG.r1; $("set-r2").value = CFG.r2;
     $("set-maxt").value = CFG.maxTrades; $("set-maxl").value = CFG.maxLossR;
     $("set-sound").checked = CFG.sound; $("set-alerts").checked = CFG.alerts;
+    $("set-ntfy").value = CFG.ntfyTopic;
     $("set-tgtoken").value = CFG.tgToken; $("set-tgchat").value = CFG.tgChat;
     if ($("nlc-tf")) $("nlc-tf").value = String(CFG.interval);
     if ($("nlc-strat")) $("nlc-strat").value = CFG.strategy;
@@ -200,6 +214,7 @@
     CFG.minADX = n("set-adx", CFG.minADX); CFG.stopATR = n("set-stop", CFG.stopATR); CFG.r1 = n("set-r1", CFG.r1); CFG.r2 = n("set-r2", CFG.r2);
     CFG.maxTrades = n("set-maxt", CFG.maxTrades); CFG.maxLossR = n("set-maxl", CFG.maxLossR);
     CFG.sound = $("set-sound").checked; CFG.alerts = $("set-alerts").checked;
+    CFG.ntfyTopic = $("set-ntfy").value.trim();
     CFG.tgToken = $("set-tgtoken").value.trim(); CFG.tgChat = $("set-tgchat").value.trim();
     saveCfg(); $("nlc-settings").classList.add("hidden"); refresh();
   }

@@ -54,9 +54,18 @@ async function telegramChatId(token) {
   return "";
 }
 
+// Free phone push via ntfy.sh — no account, just a topic name.
+async function sendNtfy(topic, title, text) {
+  const r = await fetch("https://ntfy.sh/" + encodeURIComponent(topic), {
+    method: "POST", headers: { "Title": title || "VIM", "Tags": "chart_with_upwards_trend" }, body: text || ""
+  });
+  return r.ok;
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
     try {
+      if (msg.__ntfy) { const ok = await sendNtfy(msg.topic, msg.title, msg.text); sendResponse({ ok }); return; }
       if (msg.__tgConnect) { const chat = await telegramChatId(msg.token); sendResponse({ ok: !!chat, chat }); return; }
       if (msg.__tg) { const res = await sendTelegram(msg.token, msg.chat, msg.text); sendResponse({ ok: !!(res && res.ok), desc: res && res.description }); return; }
       if (msg.type === "candles") sendResponse({ ok: true, candles: await fetchCandles(msg.symbol) });

@@ -13,6 +13,7 @@
     "https://query1.finance.yahoo.com/*",
     "https://query2.finance.yahoo.com/*",
     "https://api.telegram.org/*",
+    "https://ntfy.sh/*",
     "http://127.0.0.1:8787/*"
   ],
   "background": { "service_worker": "background.js" },
