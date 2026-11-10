@@ -1,125 +1,85 @@
-/* Popup orchestrator: load the bot's 2 picks, and for the selected one fetch live
- * 1-min candles, run the multi-algorithm engine, and render a live chart + a fresh
- * BUY/SELL/HOLD verdict with levels computed NOW (not the bot's earlier prediction).
- * Auto-refreshes every 30s while open. */
-(function () {
-  "use strict";
-  const IST = 19800; // seconds; feed as UTC so lightweight-charts' axis reads IST
-  let picks = [];
-  let active = 0;
-  let chart = null, series = null, priceLines = [];
-  let timer = null;
+"use strict";
+// Toolbar popup: mirrors the on-chart settings + shows today's stats and journal.
+// Everything is backed by chrome.storage.local, shared live with the content script.
 
-  const $ = id => document.getElementById(id);
+const DEFAULTS = {
+  strategy: "vim", interval: 5, orMinutes: 20, minADX: 20, stopATR: 1.2, r1: 1.0, r2: 3.0,
+  equity: 100000, riskPct: 0.5, sound: true, alerts: true, maxTrades: 3, maxLossR: 2.0,
+  tgToken: "", tgChat: ""
+};
+const $ = (id) => document.getElementById(id);
+const NUMS = ["equity", "riskPct", "orMinutes", "minADX", "stopATR", "r1", "r2", "maxTrades", "maxLossR"];
+const SELS = ["strategy", "interval"];
+const TXTS = ["tgToken", "tgChat"];
+const CHKS = ["sound", "alerts"];
+let CFG = Object.assign({}, DEFAULTS);
 
-  async function loadPicks() {
-    const fromBot = await Data.fetchPicks();
-    if (fromBot && fromBot.length) {
-      picks = fromBot;
-      chrome.storage && chrome.storage.local.set({ picks });
-      return;
-    }
-    const saved = await new Promise(res =>
-      chrome.storage ? chrome.storage.local.get("picks", d => res(d.picks)) : res(null));
-    if (saved && saved.length) { picks = saved; return; }
-    picks = [];
-  }
+function todayStr() { const d = new Date(); return d.getFullYear() + "-" + (d.getMonth() + 1) + "-" + d.getDate(); }
 
-  function renderTabs() {
-    const el = $("tabs"); el.innerHTML = "";
-    picks.forEach((p, i) => {
-      const t = document.createElement("div");
-      t.className = "tab" + (i === active ? " active" : "");
-      t.innerHTML = `${p.symbol}<span class="sub">${p.side || ""} ${p.score ? "· " + Number(p.score).toFixed(0) : ""}</span>`;
-      t.onclick = () => { active = i; renderTabs(); refresh(); };
-      el.appendChild(t);
-    });
-  }
+function load() {
+  chrome.storage.local.get(["cfg", "stats", "journal"], (r) => {
+    CFG = Object.assign({}, DEFAULTS, r.cfg || {});
+    SELS.forEach((k) => $(k).value = String(CFG[k]));
+    NUMS.forEach((k) => $(k).value = CFG[k]);
+    TXTS.forEach((k) => $(k).value = CFG[k]);
+    CHKS.forEach((k) => $(k).checked = !!CFG[k]);
+    renderStats((r.stats && r.stats.day === todayStr()) ? r.stats : null);
+    renderJournal(r.journal || []);
+  });
+}
 
-  function ensureChart() {
-    if (chart) return;
-    chart = LightweightCharts.createChart($("chart"), {
-      height: 200, width: $("chart").clientWidth,
-      layout: { background: { color: "transparent" }, textColor: "#9aa4b2" },
-      grid: { vertLines: { color: "#1b232e" }, horzLines: { color: "#1b232e" } },
-      timeScale: { timeVisible: true, secondsVisible: false, borderColor: "#273040" },
-      rightPriceScale: { borderColor: "#273040" }
-    });
-    series = chart.addCandlestickSeries({
-      upColor: "#2ecc71", downColor: "#e74c3c", borderVisible: false,
-      wickUpColor: "#2ecc71", wickDownColor: "#e74c3c"
-    });
-  }
+function renderStats(s) {
+  if (!s) { $("stats").innerHTML = '<div class="st"><span>No trades today</span></div>'; return; }
+  const n = s.trades, w = s.wins, l = s.losses, p = n ? w / n : 0;
+  const aw = w ? s.sumWinR / w : 0, al = l ? s.sumLossR / l : 0;
+  const exp = n ? p * aw - (1 - p) * al : 0, payoff = al > 0 ? aw / al : 0;
+  const kelly = payoff > 0 ? p - (1 - p) / payoff : 0;
+  const cls = (v) => v > 0 ? "pos" : v < 0 ? "neg" : "";
+  $("stats").innerHTML =
+    `<div class="st"><span>Day R</span><b class="${cls(s.cumR)}">${s.cumR.toFixed(2)}</b></div>` +
+    `<div class="st"><span>Trades</span><b>${n} (${w}/${l})</b></div>` +
+    `<div class="st"><span>Win%</span><b>${n ? Math.round(p * 100) : "–"}</b></div>` +
+    `<div class="st"><span>Exp</span><b class="${cls(exp)}">${n ? exp.toFixed(2) + "R" : "–"}</b></div>` +
+    `<div class="st"><span>¼Kelly</span><b class="${cls(kelly)}">${n ? Math.round(Math.max(0, kelly) * 25) + "%" : "–"}</b></div>`;
+}
 
-  function drawLevels(levels) {
-    priceLines.forEach(l => series.removePriceLine(l));
-    priceLines = [];
-    if (!levels) return;
-    const add = (price, color, title) => {
-      if (price) priceLines.push(series.createPriceLine(
-        { price, color, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title }));
-    };
-    add(levels.entry, "#38bdf8", "Entry");
-    add(levels.stop, "#f87171", "Stop");
-    add(levels.target1, "#fbbf24", "T1");
-    add(levels.target2, "#4ade80", "T2");
-  }
+function renderJournal(j) {
+  if (!j.length) { $("journal").innerHTML = '<div class="je muted">No trades yet.</div>'; return; }
+  $("journal").innerHTML = j.slice(-10).reverse().map((x) => {
+    const t = new Date(x.t); const hh = String(t.getHours()).padStart(2, "0") + ":" + String(t.getMinutes()).padStart(2, "0");
+    return `<div class="je"><span>${hh} ${x.side} ${x.sym}</span><b class="${x.R > 0 ? "pos" : x.R < 0 ? "neg" : ""}">${x.R > 0 ? "+" : ""}${x.R}R <i>${x.exit}</i></b></div>`;
+  }).join("");
+}
 
-  function renderVerdict(d, side) {
-    $("action").className = "action " + d.action;
-    $("action").textContent = d.action;
-    $("confidence").textContent = d.confidence ? `${d.confidence}% agree` : "";
-    $("side").textContent = side ? `bot side: ${side}` : "";
-    const L = d.levels;
-    $("levels").innerHTML = L ? [
-      ["Entry", L.entry], ["Stop", L.stop], ["T1", L.target1], ["T2", L.target2]
-    ].map(([k, v]) => `<div class="lv"><div class="k">${k}</div><div class="v">₹${v.toFixed(2)}</div></div>`).join("")
-      : `<div class="lv" style="grid-column:1/-1"><div class="k">No trade</div><div class="v">algos not aligned${side ? " with " + side : ""}</div></div>`;
-    $("votes").innerHTML = d.votes.map(v =>
-      `<span class="vote ${v.signal}" title="${v.note}">${v.name}: ${v.signal}</span>`).join("");
-  }
+function save() {
+  SELS.forEach((k) => CFG[k] = k === "interval" ? parseInt($(k).value, 10) : $(k).value);
+  NUMS.forEach((k) => { const v = parseFloat($(k).value); if (!isNaN(v)) CFG[k] = v; });
+  TXTS.forEach((k) => CFG[k] = $(k).value.trim());
+  CHKS.forEach((k) => CFG[k] = $(k).checked);
+  chrome.storage.local.set({ cfg: CFG }, () => { $("status").textContent = "saved ✓"; setTimeout(() => $("status").textContent = "today", 1200); });
+}
 
-  async function refresh() {
-    if (!picks.length) { $("manual").classList.remove("hidden"); $("status").textContent = "no picks"; return; }
-    $("manual").classList.add("hidden");
-    const p = picks[active];
-    $("status").textContent = "updating " + p.symbol + "…";
-    try {
-      const candles = await Data.fetchCandles(p.symbol);
-      if (!candles.length) { $("status").textContent = "no live data for " + p.symbol; return; }
-      ensureChart();
-      series.setData(candles.map(c => ({
-        time: c.t + IST, open: c.o, high: c.h, low: c.l, close: c.c
-      })));
-      const d = Algos.decide(candles, (p.side || "").toUpperCase());
-      drawLevels(d.levels);
-      chart.timeScale().fitContent();
-      renderVerdict(d, p.side);
-      const now = new Date();
-      $("status").textContent = `updated ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
-    } catch (e) {
-      $("status").textContent = "error: " + e.message;
-    }
-  }
+function exportCsv() {
+  chrome.storage.local.get(["journal"], (r) => {
+    const j = r.journal || [];
+    const rows = [["datetime", "symbol", "side", "entry", "stop", "exit", "R"]];
+    j.forEach((x) => rows.push([new Date(x.t).toISOString(), x.sym, x.side, x.entry, x.stop, x.exit, x.R]));
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([rows.map((r) => r.join(",")).join("\n")], { type: "text/csv" }));
+    a.download = "vim_journal_" + todayStr() + ".csv"; a.click();
+  });
+}
 
-  function startManual() {
-    $("manualGo").onclick = () => {
-      const syms = $("manualInput").value.split(",").map(s => s.trim().toUpperCase()).filter(Boolean).slice(0, 2);
-      if (!syms.length) return;
-      picks = syms.map(s => ({ symbol: s, side: "" }));
-      chrome.storage && chrome.storage.local.set({ picks });
-      active = 0; renderTabs(); refresh();
-    };
-  }
-
-  async function init() {
-    startManual();
-    await loadPicks();
-    renderTabs();
-    await refresh();
-    timer = setInterval(refresh, 30000);
-    window.addEventListener("resize", () => chart && chart.applyOptions({ width: $("chart").clientWidth }));
-  }
-
-  document.addEventListener("DOMContentLoaded", init);
-})();
+$("save").onclick = save;
+$("exp").onclick = exportCsv;
+$("clr").onclick = () => {
+  if (!confirm("Reset today's stats and journal?")) return;
+  chrome.storage.local.set({ stats: { day: todayStr(), trades: 0, wins: 0, losses: 0, cumR: 0, sumWinR: 0, sumLossR: 0 }, journal: [] }, load);
+};
+$("tgtest").onclick = () => {
+  const token = $("tgToken").value.trim(), chat = $("tgChat").value.trim();
+  if (!token || !chat) { $("status").textContent = "enter token + chat id"; return; }
+  chrome.runtime.sendMessage({ __tg: true, token, chat, text: "✅ VIM test alert — Telegram connected." }, () => { $("status").textContent = "test sent"; });
+};
+chrome.storage.onChanged.addListener((ch, area) => { if (area === "local" && (ch.stats || ch.journal)) load(); });
+load();

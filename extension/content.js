@@ -16,8 +16,49 @@
     phase: 0, entry: 0, stop: 0, t1: 0, t2: 0, t1done: false, eScore: 0,
     chart: null, series: null, lines: [], lastBetterAt: 0,
     equity: 100000, riskPct: 0.5, shares: 0,
-    livePrice: 0, priceSel: "", priceEl: null
+    livePrice: 0, priceSel: "", priceEl: null,
+    entry0: 0, stop0: 0, blocked: false
   };
+
+  // ---- Persisted config (chrome.storage.local), with live defaults ----
+  const DEFAULTS = {
+    strategy: "vim",        // "vim" | "scanner"
+    interval: 5, orMinutes: 20, minADX: 20, stopATR: 1.2, r1: 1.0, r2: 3.0,
+    equity: 100000, riskPct: 0.5,
+    sound: true, alerts: true,
+    maxTrades: 3, maxLossR: 2.0,     // daily kill-switch
+    tgToken: "", tgChat: ""           // optional free Telegram alerts
+  };
+  let CFG = Object.assign({}, DEFAULTS);
+  function loadCfg(cb) {
+    try { chrome.storage.local.get(["cfg"], (r) => { CFG = Object.assign({}, DEFAULTS, r.cfg || {}); S.interval = CFG.interval; if (cb) cb(); }); }
+    catch (e) { if (cb) cb(); }
+  }
+  function saveCfg() { try { chrome.storage.local.set({ cfg: CFG }); } catch (e) {} }
+
+  // ---- Session stats (reset daily) + trade journal, both persisted ----
+  function todayStr() { const d = new Date(); return d.getFullYear() + "-" + (d.getMonth() + 1) + "-" + d.getDate(); }
+  let STATS = { day: todayStr(), trades: 0, wins: 0, losses: 0, cumR: 0, sumWinR: 0, sumLossR: 0 };
+  let JOURNAL = [];
+  function loadStats(cb) {
+    try {
+      chrome.storage.local.get(["stats", "journal"], (r) => {
+        if (r.stats && r.stats.day === todayStr()) STATS = r.stats;
+        JOURNAL = r.journal || [];
+        if (cb) cb();
+      });
+    } catch (e) { if (cb) cb(); }
+  }
+  function saveStats() { try { chrome.storage.local.set({ stats: STATS, journal: JOURNAL.slice(-500) }); } catch (e) {} }
+
+  try {
+    chrome.storage.onChanged.addListener((ch, area) => {
+      if (area !== "local") return;
+      if (ch.cfg) { CFG = Object.assign({}, DEFAULTS, ch.cfg.newValue || {}); S.interval = CFG.interval; syncSettingsUI(); }
+      if (ch.stats && ch.stats.newValue) { STATS = ch.stats.newValue; renderStats(); }
+      if (ch.journal) { JOURNAL = ch.journal.newValue || []; }
+    });
+  } catch (e) {}
 
   window.addEventListener("message", (e) => {
     const d = e.data;
@@ -31,10 +72,16 @@
 
   function reset() { S.phase = 0; S.t1done = false; S.eScore = 0; }
 
-  // ---- notifications + sound ----
+  // ---- notifications + sound + optional free Telegram push ----
   function notify(title, body) {
-    try { if (window.Notification && Notification.permission === "granted") new Notification(title, { body, silent: false }); } catch (e) {}
-    beep();
+    if (!CFG.alerts) return;
+    try { if (window.Notification && Notification.permission === "granted") new Notification(title, { body, silent: !CFG.sound }); } catch (e) {}
+    if (CFG.sound) beep();
+    telegram(title + " — " + body);
+  }
+  function telegram(text) {
+    if (!CFG.tgToken || !CFG.tgChat) return;
+    try { chrome.runtime.sendMessage({ __tg: true, token: CFG.tgToken, chat: CFG.tgChat, text: text }); } catch (e) {}
   }
   function beep() {
     try {
@@ -46,35 +93,88 @@
   }
 
   const $ = (id) => document.getElementById(id);
+  function num(id, label, val, step) { return '<label class="nlc-f"><span>' + label + '</span><input id="' + id + '" type="number" step="' + step + '" value="' + val + '"></label>'; }
   function build() {
     const p = document.createElement("div");
     p.id = "nse-live-confirm";
     p.innerHTML =
-      '<div id="nlc-head"><span class="t">VIM Live ⚡</span><span class="s" id="nlc-live" title="live price (1s)">₹–</span><span class="s" id="nlc-status">…</span><span id="nlc-min" title="minimize">—</span></div>' +
+      '<div id="nlc-head"><span class="t">VIM Live ⚡</span><span class="s" id="nlc-live" title="live price (1s)">₹–</span><span class="s" id="nlc-status">…</span><span id="nlc-gear" title="settings">⚙</span><span id="nlc-min" title="minimize">—</span></div>' +
       '<div id="nlc-body">' +
+      '<div id="nlc-banner"></div>' +
       '<div id="nlc-state"><span id="nlc-action" class="WAIT">—</span><span id="nlc-score">—</span></div>' +
-      '<div id="nlc-tfrow">Entry timeframe: <select id="nlc-tf"><option value="3">3 min</option><option value="5" selected>5 min</option><option value="15">15 min</option></select> <span id="nlc-htf"></span></div>' +
+      '<div id="nlc-tfrow">TF: <select id="nlc-tf"><option value="3">3m</option><option value="5">5m</option><option value="15">15m</option></select>' +
+      ' · <select id="nlc-strat"><option value="vim">VIM</option><option value="scanner">Scanner</option></select> <span id="nlc-htf"></span></div>' +
       '<button id="nlc-alert">🔔 Enable alerts</button>' +
       '<div id="nlc-sub"></div>' +
       '<div id="nlc-better"></div>' +
       '<div id="nlc-levels"></div>' +
       '<div id="nlc-chart"></div>' +
       '<div id="nlc-ev"></div>' +
-      '<div id="nlc-foot">Real-time via your Groww session · scored strategy · NOT advice — execute manually.</div>' +
+      '<div id="nlc-stats"></div>' +
+      '<div id="nlc-jrow"><span id="nlc-jtitle">Journal</span><button id="nlc-exp" class="nlc-mini">Export CSV</button><button id="nlc-clr" class="nlc-mini">Reset day</button></div>' +
+      '<div id="nlc-journal"></div>' +
+      '<div id="nlc-settings" class="hidden">' +
+        '<div class="nlc-sgrid">' +
+          num("set-equity", "Capital ₹", CFG.equity, "1000") +
+          num("set-risk", "Risk %", CFG.riskPct, "0.1") +
+          num("set-or", "OR min", CFG.orMinutes, "5") +
+          num("set-adx", "Min ADX", CFG.minADX, "1") +
+          num("set-stop", "Stop ATR", CFG.stopATR, "0.1") +
+          num("set-r1", "Target1 R", CFG.r1, "0.5") +
+          num("set-r2", "Target2 R", CFG.r2, "0.5") +
+          num("set-maxt", "Max trades/day", CFG.maxTrades, "1") +
+          num("set-maxl", "Daily stop (−R)", CFG.maxLossR, "0.5") +
+        '</div>' +
+        '<label class="nlc-chk"><input type="checkbox" id="set-sound"> Sound</label>' +
+        '<label class="nlc-chk"><input type="checkbox" id="set-alerts"> Desktop alerts</label>' +
+        '<div class="nlc-tg">Free Telegram alerts (optional):' +
+          '<input id="set-tgtoken" placeholder="bot token"><input id="set-tgchat" placeholder="chat id">' +
+          '<button id="set-tgtest" class="nlc-mini">Test</button></div>' +
+        '<button id="set-save" class="nlc-save">Save settings</button>' +
+      '</div>' +
+      '<div id="nlc-foot">Real-time via your Groww session · paper-trade · NOT advice — execute manually.</div>' +
       '</div>';
     document.body.appendChild(p);
     $("nlc-min").onclick = () => p.classList.toggle("min");
-    const tf = $("nlc-tf");
-    tf.value = String(S.interval);
-    tf.onchange = () => { S.interval = parseInt(tf.value, 10) || 5; reset(); refresh(); };
+    $("nlc-gear").onclick = () => $("nlc-settings").classList.toggle("hidden");
+    const tf = $("nlc-tf"); tf.value = String(S.interval);
+    tf.onchange = () => { CFG.interval = S.interval = parseInt(tf.value, 10) || 5; saveCfg(); reset(); refresh(); };
+    const st = $("nlc-strat"); st.value = CFG.strategy;
+    st.onchange = () => { CFG.strategy = st.value; saveCfg(); reset(); refresh(); };
     const ab = $("nlc-alert");
     if (window.Notification && Notification.permission === "granted") ab.style.display = "none";
     ab.onclick = () => { try { Notification.requestPermission().then((r) => { if (r === "granted") { ab.style.display = "none"; notify("Alerts on", "You'll be pinged on BUY/SELL/targets."); } }); } catch (e) {} };
+    $("nlc-exp").onclick = exportCsv;
+    $("nlc-clr").onclick = () => { if (confirm("Reset today's stats and journal?")) { STATS = { day: todayStr(), trades: 0, wins: 0, losses: 0, cumR: 0, sumWinR: 0, sumLossR: 0 }; JOURNAL = []; saveStats(); renderStats(); renderJournal(); } };
+    $("set-save").onclick = readSettingsUI;
+    $("set-tgtest").onclick = () => { CFG.tgToken = $("set-tgtoken").value.trim(); CFG.tgChat = $("set-tgchat").value.trim(); telegram("✅ VIM test alert — Telegram connected."); };
+    syncSettingsUI();
     const h = $("nlc-head"); let sx, sy, ox, oy, drag = false;
-    h.addEventListener("mousedown", (e) => { if (e.target.id === "nlc-min") return; drag = true; sx = e.clientX; sy = e.clientY; const r = p.getBoundingClientRect(); ox = r.left; oy = r.top; e.preventDefault(); });
+    h.addEventListener("mousedown", (e) => { if (e.target.id === "nlc-min" || e.target.id === "nlc-gear") return; drag = true; sx = e.clientX; sy = e.clientY; const r = p.getBoundingClientRect(); ox = r.left; oy = r.top; e.preventDefault(); });
     document.addEventListener("mousemove", (e) => { if (!drag) return; p.style.left = (ox + e.clientX - sx) + "px"; p.style.top = (oy + e.clientY - sy) + "px"; p.style.right = "auto"; });
     document.addEventListener("mouseup", () => { drag = false; });
-    S.chart = null;  // chart belongs to the old (removed) node
+    S.chart = null;
+    renderStats(); renderJournal();
+  }
+
+  function syncSettingsUI() {
+    if (!$("set-equity")) return;
+    $("set-equity").value = CFG.equity; $("set-risk").value = CFG.riskPct; $("set-or").value = CFG.orMinutes;
+    $("set-adx").value = CFG.minADX; $("set-stop").value = CFG.stopATR; $("set-r1").value = CFG.r1; $("set-r2").value = CFG.r2;
+    $("set-maxt").value = CFG.maxTrades; $("set-maxl").value = CFG.maxLossR;
+    $("set-sound").checked = CFG.sound; $("set-alerts").checked = CFG.alerts;
+    $("set-tgtoken").value = CFG.tgToken; $("set-tgchat").value = CFG.tgChat;
+    if ($("nlc-tf")) $("nlc-tf").value = String(CFG.interval);
+    if ($("nlc-strat")) $("nlc-strat").value = CFG.strategy;
+  }
+  function readSettingsUI() {
+    const n = (id, d) => { const v = parseFloat($(id).value); return isNaN(v) ? d : v; };
+    CFG.equity = n("set-equity", CFG.equity); CFG.riskPct = n("set-risk", CFG.riskPct); CFG.orMinutes = n("set-or", CFG.orMinutes);
+    CFG.minADX = n("set-adx", CFG.minADX); CFG.stopATR = n("set-stop", CFG.stopATR); CFG.r1 = n("set-r1", CFG.r1); CFG.r2 = n("set-r2", CFG.r2);
+    CFG.maxTrades = n("set-maxt", CFG.maxTrades); CFG.maxLossR = n("set-maxl", CFG.maxLossR);
+    CFG.sound = $("set-sound").checked; CFG.alerts = $("set-alerts").checked;
+    CFG.tgToken = $("set-tgtoken").value.trim(); CFG.tgChat = $("set-tgchat").value.trim();
+    saveCfg(); $("nlc-settings").classList.add("hidden"); refresh();
   }
   function ensurePanel() { if (!document.getElementById("nse-live-confirm")) build(); }
 
@@ -116,30 +216,42 @@
   // Safe to call from both: reset()/t1done guards make repeat calls no-ops.
   function checkExits(hi, lo) {
     if (S.phase === 1) {
-      if (lo <= S.stop) { notify("⛔ STOP " + S.symbol, "Exit — stop hit"); reset(); }
+      if (lo <= S.stop) { const R = S.t1done ? CFG.r1 / 3 : -1; notify((R > 0 ? "🟡 BE " : "⛔ STOP ") + S.symbol, R > 0 ? "Stopped at breakeven (+1R booked)" : "Exit — stop hit"); closeTrade(R, S.t1done ? "BE" : "SL"); }
       else {
         if (!S.t1done && hi >= S.t1) { S.t1done = true; S.stop = S.entry; notify("🎯 +1R " + S.symbol, "Book 1/3, trail the rest (stop → breakeven)"); }
-        if (hi >= S.t2) { notify("✅ +3R " + S.symbol, "Runner hit — exit or keep trailing"); reset(); }
+        if (hi >= S.t2) { notify("✅ +" + CFG.r2 + "R " + S.symbol, "Runner hit — exit or keep trailing"); closeTrade(CFG.r1 / 3 + (2 / 3) * CFG.r2, "T2"); }
       }
     } else if (S.phase === -1) {
-      if (hi >= S.stop) { notify("⛔ STOP " + S.symbol, "Exit — stop hit"); reset(); }
+      if (hi >= S.stop) { const R = S.t1done ? CFG.r1 / 3 : -1; notify((R > 0 ? "🟡 BE " : "⛔ STOP ") + S.symbol, R > 0 ? "Stopped at breakeven (+1R booked)" : "Exit — stop hit"); closeTrade(R, S.t1done ? "BE" : "SL"); }
       else {
         if (!S.t1done && lo <= S.t1) { S.t1done = true; S.stop = S.entry; notify("🎯 +1R " + S.symbol, "Book 1/3, trail the rest (stop → breakeven)"); }
-        if (lo <= S.t2) { notify("✅ +3R " + S.symbol, "Runner hit — exit or keep trailing"); reset(); }
+        if (lo <= S.t2) { notify("✅ +" + CFG.r2 + "R " + S.symbol, "Runner hit — exit or keep trailing"); closeTrade(CFG.r1 / 3 + (2 / 3) * CFG.r2, "T2"); }
       }
     }
+  }
+
+  // Record a finished trade into daily stats + the journal, then clear state.
+  function closeTrade(R, reason) {
+    STATS.trades++; STATS.cumR += R;
+    if (R > 0) { STATS.wins++; STATS.sumWinR += R; } else { STATS.losses++; STATS.sumLossR += -R; }
+    JOURNAL.push({ t: Date.now(), sym: S.symbol, side: S.phase === 1 ? "LONG" : "SHORT", entry: +S.entry0.toFixed(2), stop: +S.stop0.toFixed(2), exit: reason, R: +R.toFixed(2) });
+    saveStats(); renderStats(); renderJournal();
+    reset();
   }
 
   // One-trade state machine on CLOSED live candles. Entries stay bar-close confirmed
   // (whipsaw-free); exits are handled in real time by checkExits() from the 1s ticker.
   function machine(candles, d) {
     const last = candles[candles.length - 1];
+    // Daily kill-switch: stop taking NEW entries after the trade cap or the daily −R limit.
+    S.blocked = STATS.trades >= CFG.maxTrades || STATS.cumR <= -Math.abs(CFG.maxLossR);
     if (S.phase === 0) {
-      if (d.levels && (d.action === "BUY" || d.action === "SELL")) {
+      if (!S.blocked && d.levels && (d.action === "BUY" || d.action === "SELL")) {
         S.phase = d.action === "BUY" ? 1 : -1;
         S.entry = d.levels.entry; S.stop = d.levels.stop; S.t1 = d.levels.target1; S.t2 = d.levels.target2;
+        S.entry0 = S.entry; S.stop0 = S.stop;
         S.t1done = false; S.eScore = d.score;
-        notify((d.action === "BUY" ? "🟢 BUY " : "🔴 SELL ") + S.symbol, "@" + S.entry.toFixed(2) + "  SL " + S.stop.toFixed(2) + "  T1 " + S.t1.toFixed(2) + "  T2 " + S.t2.toFixed(2) + "  (score " + S.score + ")");
+        notify((d.action === "BUY" ? "🟢 BUY " : "🔴 SELL ") + S.symbol, "@" + S.entry.toFixed(2) + "  SL " + S.stop.toFixed(2) + "  T1 " + S.t1.toFixed(2) + "  T2 " + S.t2.toFixed(2) + "  · " + S.shares + " sh");
       }
     } else {
       checkExits(last.h, last.l);  // bar-level safety net; the 1s ticker does the fast checks
@@ -198,7 +310,43 @@
     }
   }
 
+  // ---- Pro stats: expectancy + Kelly from the day's closed trades ----
+  function renderStats() {
+    const el = $("nlc-stats"); if (!el) return;
+    const n = STATS.trades, w = STATS.wins, l = STATS.losses;
+    const p = n ? w / n : 0;
+    const aw = w ? STATS.sumWinR / w : 0, al = l ? STATS.sumLossR / l : 0;
+    const exp = n ? p * aw - (1 - p) * al : 0;
+    const payoff = al > 0 ? aw / al : 0;
+    const kelly = payoff > 0 ? p - (1 - p) / payoff : 0;
+    const cls = (v) => v > 0 ? "pos" : v < 0 ? "neg" : "";
+    el.innerHTML =
+      `<div class="nlc-st"><span>Day R</span><b class="${cls(STATS.cumR)}">${STATS.cumR.toFixed(2)}</b></div>` +
+      `<div class="nlc-st"><span>Trades</span><b>${n} (${w}/${l})</b></div>` +
+      `<div class="nlc-st"><span>Win%</span><b>${n ? Math.round(p * 100) : "–"}</b></div>` +
+      `<div class="nlc-st"><span>Expectancy</span><b class="${cls(exp)}">${n ? exp.toFixed(2) + "R" : "–"}</b></div>` +
+      `<div class="nlc-st"><span>Kelly</span><b class="${cls(kelly)}">${n ? Math.round(Math.max(0, kelly) * 25) + "%" : "–"}</b></div>`;
+  }
+  function renderJournal() {
+    const el = $("nlc-journal"); if (!el) return;
+    if (!JOURNAL.length) { el.innerHTML = '<div class="nlc-je muted">No trades yet today.</div>'; return; }
+    el.innerHTML = JOURNAL.slice(-6).reverse().map((j) => {
+      const tm = new Date(j.t); const hh = String(tm.getHours()).padStart(2, "0") + ":" + String(tm.getMinutes()).padStart(2, "0");
+      return `<div class="nlc-je"><span>${hh} ${j.side} ${j.sym}</span><b class="${j.R > 0 ? "pos" : j.R < 0 ? "neg" : ""}">${j.R > 0 ? "+" : ""}${j.R}R <i>${j.exit}</i></b></div>`;
+    }).join("");
+  }
+  function exportCsv() {
+    const rows = [["datetime", "symbol", "side", "entry", "stop", "exit", "R"]];
+    JOURNAL.forEach((j) => rows.push([new Date(j.t).toISOString(), j.sym, j.side, j.entry, j.stop, j.exit, j.R]));
+    const csv = rows.map((r) => r.join(",")).join("\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    a.download = "vim_journal_" + todayStr() + ".csv"; a.click();
+  }
+
   function render(candles, d) {
+    const bn = $("nlc-banner");
+    if (bn) { if (S.blocked && S.phase === 0) { bn.textContent = "🛑 Daily limit hit — no new trades (" + STATS.trades + "/" + CFG.maxTrades + ", " + STATS.cumR.toFixed(1) + "R). Reset to override."; bn.classList.add("show"); } else bn.classList.remove("show"); }
     const act = $("nlc-action");
     const label = S.phase === 1 ? "HOLDING LONG" : S.phase === -1 ? "HOLDING SHORT" : d.action === "BUY" ? "BUY NOW" : d.action === "SELL" ? "SELL NOW" : d.action === "HOLD" ? "HOLD" : "WAIT";
     act.className = S.phase === 1 ? "LONG" : S.phase === -1 ? "SHORT" : d.action || "WAIT";
@@ -234,7 +382,9 @@
       let htfTrend = "FLAT";
       try { htfTrend = Algos.htfTrendOf(await fetchCandles(htfInt)); } catch (e) {}
       const hb = $("nlc-htf"); if (hb) hb.textContent = "· " + htfInt + "m trend: " + htfTrend;
-      const d = Algos.vimDecide(candles, { interval: S.interval, orMinutes: 20, equity: S.equity, riskPct: S.riskPct });
+      const d = CFG.strategy === "scanner"
+        ? Algos.swingDecide(candles, { minScore: 70, htfTrend })
+        : Algos.vimDecide(candles, { interval: S.interval, orMinutes: CFG.orMinutes, equity: CFG.equity, riskPct: CFG.riskPct, minADX: CFG.minADX, stopATR: CFG.stopATR, r1: CFG.r1, r2: CFG.r2 });
       S.score = d.score;
       S.shares = d.shares || 0;
       machine(candles, d);
@@ -243,12 +393,14 @@
   }
 
   function init() {
-    build();
-    setInterval(refresh, 5000);   // setup/signal on closed bars (no rate-limit risk at 5s)
-    setInterval(tick, 1000);      // live price + real-time exits, read off the page (no network)
-    setInterval(ensurePanel, 3000);
-    setTimeout(refresh, 2500);
-    window.addEventListener("resize", () => { if (S.chart && $("nlc-chart")) S.chart.applyOptions({ width: $("nlc-chart").clientWidth }); });
+    loadCfg(() => loadStats(() => {
+      build();
+      setInterval(refresh, 5000);   // setup/signal on closed bars (no rate-limit risk at 5s)
+      setInterval(tick, 1000);      // live price + real-time exits, read off the page (no network)
+      setInterval(ensurePanel, 3000);
+      setTimeout(refresh, 2500);
+      window.addEventListener("resize", () => { if (S.chart && $("nlc-chart")) S.chart.applyOptions({ width: $("nlc-chart").clientWidth }); });
+    }));
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
   else init();

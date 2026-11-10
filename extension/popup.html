@@ -6,36 +6,50 @@
 </head>
 <body>
   <div class="hd">
-    <span class="title">Live Confirm</span>
-    <span id="status" class="status">loading…</span>
+    <span class="title">VIM Live ⚡</span>
+    <span id="status" class="status">today</span>
   </div>
 
-  <div id="tabs" class="tabs"></div>
+  <div id="stats" class="stats"></div>
 
-  <div id="manual" class="manual hidden">
-    No picks from the bot. Type two NSE symbols (comma-separated):
-    <input id="manualInput" placeholder="LAURUSLABS, DALBHARAT">
-    <button id="manualGo">Go</button>
+  <div class="sec">
+    <div class="sec-h"><span>Journal (today)</span>
+      <span><button id="exp" class="mini">Export CSV</button><button id="clr" class="mini">Reset</button></span>
+    </div>
+    <div id="journal" class="journal"></div>
   </div>
 
-  <div id="verdict" class="verdict">
-    <span id="action" class="action">—</span>
-    <span id="confidence" class="confidence"></span>
-    <span id="side" class="side"></span>
+  <div class="sec">
+    <div class="sec-h"><span>Settings</span><button id="save" class="mini save">Save</button></div>
+    <div class="grid">
+      <label>Strategy
+        <select id="strategy"><option value="vim">VIM</option><option value="scanner">Scanner</option></select></label>
+      <label>Timeframe
+        <select id="interval"><option value="3">3m</option><option value="5">5m</option><option value="15">15m</option></select></label>
+      <label>Capital ₹<input id="equity" type="number" step="1000"></label>
+      <label>Risk %<input id="riskPct" type="number" step="0.1"></label>
+      <label>OR min<input id="orMinutes" type="number" step="5"></label>
+      <label>Min ADX<input id="minADX" type="number" step="1"></label>
+      <label>Stop ATR<input id="stopATR" type="number" step="0.1"></label>
+      <label>Target1 R<input id="r1" type="number" step="0.5"></label>
+      <label>Target2 R<input id="r2" type="number" step="0.5"></label>
+      <label>Max trades<input id="maxTrades" type="number" step="1"></label>
+      <label>Daily −R<input id="maxLossR" type="number" step="0.5"></label>
+    </div>
+    <label class="chk"><input type="checkbox" id="sound"> Sound</label>
+    <label class="chk"><input type="checkbox" id="alerts"> Desktop alerts</label>
+    <div class="tg">Free Telegram alerts (optional)
+      <input id="tgToken" placeholder="bot token">
+      <input id="tgChat" placeholder="chat id">
+      <button id="tgtest" class="mini">Send test</button>
+    </div>
   </div>
-
-  <div id="levels" class="levels"></div>
-  <div id="chart" class="chart"></div>
-  <div id="votes" class="votes"></div>
 
   <div class="foot">
-    Live confirmation only — multiple standard algorithms on 1-min candles. NOT advice.
-    Execute manually in your broker. Data is lightly delayed (free feed).
+    Open a stock on <b>groww.in</b> and hard-refresh to see the live panel.
+    Real-time off your Groww session · paper-trade · NOT advice.
   </div>
 
-  <script src="lib/lwc.js"></script>
-  <script src="algos.js"></script>
-  <script src="data.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

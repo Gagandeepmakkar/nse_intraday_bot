@@ -37,3 +37,32 @@
 #nlc-better.show { display: block; }
 #nlc-foot { font-size: 10px; color: #6f7986; }
 #nse-live-confirm.min #nlc-body { display: none; }
+
+/* --- v2 production UI --- */
+#nlc-gear { cursor: pointer; color: #9aa4b2; font-size: 13px; padding: 0 4px; }
+#nlc-gear:hover { color: #e6e9ee; }
+.hidden { display: none !important; }
+#nlc-banner { display: none; background: #3b1113; color: #ff8a93; border: 1px solid #5c1a1f; border-radius: 8px; padding: 6px 9px; margin-bottom: 9px; font-size: 11px; font-weight: 700; }
+#nlc-banner.show { display: block; }
+#nlc-tfrow select { background: #1a2230; color: #e6e9ee; border: 1px solid #2a3647; border-radius: 6px; padding: 2px 5px; font-size: 11px; }
+#nlc-stats { display: flex; gap: 6px; margin: 8px 0; }
+.nlc-st { flex: 1; background: #11161d; border: 1px solid #1e2733; border-radius: 8px; padding: 5px 3px; text-align: center; }
+.nlc-st span { display: block; font-size: 8px; color: #8a94a2; text-transform: uppercase; letter-spacing: .3px; }
+.nlc-st b { font-size: 12px; font-weight: 800; }
+.pos { color: #22d36f; } .neg { color: #ff5c6c; } .muted { color: #6f7986; }
+#nlc-jrow { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+#nlc-jtitle { font-size: 11px; font-weight: 700; color: #c3cad6; margin-right: auto; }
+.nlc-mini { background: #1a2230; color: #c3cad6; border: 1px solid #2a3647; border-radius: 6px; padding: 2px 7px; font-size: 10px; cursor: pointer; }
+.nlc-mini:hover { background: #22304180; }
+#nlc-journal { margin-bottom: 8px; }
+.nlc-je { display: flex; justify-content: space-between; font-size: 11px; padding: 2px 0; border-bottom: 1px solid #141b24; color: #aab3c0; }
+.nlc-je b i { font-style: normal; color: #6f7986; font-size: 9px; }
+#nlc-settings { background: #0c1117; border: 1px solid #1e2733; border-radius: 10px; padding: 9px; margin-bottom: 8px; }
+.nlc-sgrid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 8px; }
+.nlc-f { display: flex; flex-direction: column; font-size: 9px; color: #8a94a2; }
+.nlc-f input { background: #1a2230; color: #e6e9ee; border: 1px solid #2a3647; border-radius: 6px; padding: 3px 5px; font-size: 11px; margin-top: 2px; }
+.nlc-chk { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: #c3cad6; margin-right: 12px; }
+.nlc-tg { font-size: 10px; color: #8a94a2; margin: 8px 0; }
+.nlc-tg input { width: 100%; background: #1a2230; color: #e6e9ee; border: 1px solid #2a3647; border-radius: 6px; padding: 4px 6px; font-size: 11px; margin-top: 4px; }
+.nlc-save { width: 100%; background: #10331f; color: #4ade80; border: 1px solid #1c5235; border-radius: 8px; padding: 7px; font-weight: 700; font-size: 12px; cursor: pointer; margin-top: 4px; }
+.nlc-save:hover { background: #124227; }

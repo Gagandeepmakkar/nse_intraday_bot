@@ -35,9 +35,16 @@ async function analyzeStock(symbol, side) {
   return await r.json();
 }
 
+// Optional free Telegram push (content scripts can't call api.telegram.org due to CORS).
+async function sendTelegram(token, chat, text) {
+  const u = `https://api.telegram.org/bot${token}/sendMessage`;
+  await fetch(u, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chat_id: chat, text }) });
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
     try {
+      if (msg.__tg) { await sendTelegram(msg.token, msg.chat, msg.text); sendResponse({ ok: true }); return; }
       if (msg.type === "candles") sendResponse({ ok: true, candles: await fetchCandles(msg.symbol) });
       else if (msg.type === "picks") sendResponse({ ok: true, picks: await fetchPicks() });
       else if (msg.type === "analyze") sendResponse({ ok: true, result: await analyzeStock(msg.symbol, msg.side) });

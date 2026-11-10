@@ -289,7 +289,10 @@
     opts = opts || {};
     const interval = opts.interval || 5;
     const orMin = opts.orMinutes || 20;
-    const stopATRm = 1.2, emaLen = 9;
+    const stopATRm = opts.stopATR || 1.2;
+    const minADX = opts.minADX != null ? opts.minADX : 20;
+    const r1 = opts.r1 || 1.0, r2 = opts.r2 || 3.0;
+    const emaLen = 9;
     if (!candles || candles.length < 30) return { action: "WAIT", note: "loading candles…", score: 0, trend: "?" };
     const closes = candles.map(c => c.c);
     const i = closes.length - 1, price = closes[i];
@@ -325,12 +328,12 @@
 
     const risk = stopATRm * a;
     let action = "HOLD", levels = null;
-    if (regime === "up" && pulledUp && crossUp && adx >= 20 && plusDI > minusDI) {
+    if (regime === "up" && pulledUp && crossUp && adx >= minADX && plusDI > minusDI) {
       action = "BUY";
-      levels = { entry: price, stop: price - risk, target1: price + risk, target2: price + 3 * risk };
-    } else if (regime === "down" && pulledDn && crossDn && adx >= 20 && minusDI > plusDI) {
+      levels = { entry: price, stop: price - risk, target1: price + r1 * risk, target2: price + r2 * risk };
+    } else if (regime === "down" && pulledDn && crossDn && adx >= minADX && minusDI > plusDI) {
       action = "SELL";
-      levels = { entry: price, stop: price + risk, target1: price - risk, target2: price - 3 * risk };
+      levels = { entry: price, stop: price + risk, target1: price - r1 * risk, target2: price - r2 * risk };
     }
 
     const equity = opts.equity || 100000, riskPct = opts.riskPct || 0.5;
