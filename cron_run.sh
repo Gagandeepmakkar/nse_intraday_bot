@@ -11,7 +11,7 @@ LOG="cron.log"
   python track.py || true          # grade yesterday's picks
   # Pre-market intelligence briefing — only in the first (pre-open) slot of the day,
   # when BRIEF_SYMBOLS is configured in .env. Pushes to phone (ntfy) + email.
-  if [ "$(TZ=Asia/Kolkata date +%H%M)" -lt "0915" ]; then
+  if [ "$((10#$(TZ=Asia/Kolkata date +%H%M)))" -lt 915 ]; then
     python briefing.py --ntfy --email || echo "briefing.py exited non-zero"
   fi
   python bot.py || echo "bot.py exited non-zero"
