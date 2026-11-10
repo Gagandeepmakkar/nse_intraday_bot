@@ -164,8 +164,9 @@
     $("set-save").onclick = readSettingsUI;
     $("set-tgtest").onclick = () => {
       CFG.tgToken = $("set-tgtoken").value.trim(); CFG.tgChat = $("set-tgchat").value.trim();
-      if (!CFG.tgToken) return;
-      if (CFG.tgChat) { saveCfg(); telegram("✅ VIM test alert — Telegram connected."); return; }
+      if (!CFG.tgToken) { $("nlc-status").textContent = "paste the bot token"; return; }
+      const report = (r) => { $("nlc-status").textContent = (r && r.ok) ? "Telegram ✓ delivered" : "Telegram FAILED: " + ((r && r.desc) || "start the bot / chat id"); };
+      if (CFG.tgChat) { saveCfg(); try { chrome.runtime.sendMessage({ __tg: true, token: CFG.tgToken, chat: CFG.tgChat, text: "✅ VIM test alert — Telegram connected." }, report); } catch (e) {} return; }
       $("nlc-status").textContent = "connecting Telegram…";
       try {
         chrome.runtime.sendMessage({ __tgConnect: true, token: CFG.tgToken }, (r) => {

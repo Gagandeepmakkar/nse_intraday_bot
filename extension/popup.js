@@ -80,7 +80,10 @@ $("tgtest").onclick = () => {
   const token = $("tgToken").value.trim();
   let chat = $("tgChat").value.trim();
   if (!token) { $("status").textContent = "token missing"; return; }
-  const send = (c) => chrome.runtime.sendMessage({ __tg: true, token, chat: c, text: "✅ VIM test alert — Telegram connected." }, () => { $("status").textContent = "test sent ✓"; });
+  const send = (c) => chrome.runtime.sendMessage({ __tg: true, token, chat: c, text: "✅ VIM test alert — Telegram connected." }, (r) => {
+    if (r && r.ok) $("status").textContent = "delivered ✓ — check Telegram";
+    else $("status").textContent = "FAILED: " + ((r && r.desc) || "start the bot & check chat id");
+  });
   if (chat) { send(chat); return; }
   $("status").textContent = "connecting… (press Start in the bot first)";
   chrome.runtime.sendMessage({ __tgConnect: true, token }, (r) => {
