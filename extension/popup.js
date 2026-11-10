@@ -77,9 +77,16 @@ $("clr").onclick = () => {
   chrome.storage.local.set({ stats: { day: todayStr(), trades: 0, wins: 0, losses: 0, cumR: 0, sumWinR: 0, sumLossR: 0 }, journal: [] }, load);
 };
 $("tgtest").onclick = () => {
-  const token = $("tgToken").value.trim(), chat = $("tgChat").value.trim();
-  if (!token || !chat) { $("status").textContent = "enter token + chat id"; return; }
-  chrome.runtime.sendMessage({ __tg: true, token, chat, text: "✅ VIM test alert — Telegram connected." }, () => { $("status").textContent = "test sent"; });
+  const token = $("tgToken").value.trim();
+  let chat = $("tgChat").value.trim();
+  if (!token) { $("status").textContent = "token missing"; return; }
+  const send = (c) => chrome.runtime.sendMessage({ __tg: true, token, chat: c, text: "✅ VIM test alert — Telegram connected." }, () => { $("status").textContent = "test sent ✓"; });
+  if (chat) { send(chat); return; }
+  $("status").textContent = "connecting… (press Start in the bot first)";
+  chrome.runtime.sendMessage({ __tgConnect: true, token }, (r) => {
+    if (r && r.ok && r.chat) { $("tgChat").value = r.chat; CFG.tgChat = r.chat; chrome.storage.local.set({ cfg: CFG }); send(r.chat); }
+    else $("status").textContent = "press Start in your bot, then retry";
+  });
 };
 chrome.storage.onChanged.addListener((ch, area) => { if (area === "local" && (ch.stats || ch.journal)) load(); });
 load();

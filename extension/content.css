@@ -2,14 +2,16 @@
   position: fixed; top: 80px; right: 18px; z-index: 2147483647;
   width: 340px; background: #0b0f14; color: #e6e9ee;
   border: 1px solid #263040; border-radius: 14px; box-shadow: 0 12px 48px rgba(0,0,0,.6);
-  font: 13px/1.45 -apple-system, Segoe UI, Roboto, sans-serif; overflow: hidden;
+  font: 13px/1.45 -apple-system, Segoe UI, Roboto, sans-serif;
+  overflow: auto; resize: both;             /* drag the bottom-right corner to resize */
+  min-width: 300px; max-width: 96vw; min-height: 150px; max-height: 92vh;
 }
 #nse-live-confirm * { box-sizing: border-box; }
-#nlc-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; cursor: move; background: #11161d; border-bottom: 1px solid #1e2733; }
-#nlc-head .t { font-weight: 800; font-size: 13px; letter-spacing: .3px; }
+#nlc-head { display: flex; align-items: center; gap: 6px; padding: 10px 12px; cursor: move; background: #11161d; border-bottom: 1px solid #1e2733; flex-wrap: nowrap; }
+#nlc-head .t { font-weight: 800; font-size: 13px; letter-spacing: .3px; white-space: nowrap; flex: 0 0 auto; }
 #nlc-head .s { font-size: 10px; color: #8a94a2; }
-#nlc-head #nlc-live { margin-left: auto; font-size: 12px; font-weight: 800; color: #22d36f; letter-spacing: .2px; }
-#nlc-head #nlc-status { margin-left: 8px; }
+#nlc-head #nlc-live { margin-left: auto; font-size: 12px; font-weight: 800; color: #22d36f; letter-spacing: .2px; flex: 0 0 auto; white-space: nowrap; }
+#nlc-head #nlc-status { margin-left: 6px; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
 #nlc-min { cursor: pointer; color: #9aa4b2; font-weight: 700; padding: 0 4px; }
 #nlc-body { padding: 12px; }
 #nlc-state { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }

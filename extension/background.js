@@ -40,10 +40,23 @@ async function sendTelegram(token, chat, text) {
   const u = `https://api.telegram.org/bot${token}/sendMessage`;
   await fetch(u, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chat_id: chat, text }) });
 }
+// Find the chat id of whoever last messaged the bot (after they press Start).
+async function telegramChatId(token) {
+  const r = await fetch(`https://api.telegram.org/bot${token}/getUpdates`);
+  const j = await r.json();
+  const ups = (j && j.result) || [];
+  for (let i = ups.length - 1; i >= 0; i--) {
+    const m = ups[i].message || ups[i].edited_message || (ups[i].my_chat_member);
+    const id = m && m.chat && m.chat.id;
+    if (id) return String(id);
+  }
+  return "";
+}
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
     try {
+      if (msg.__tgConnect) { const chat = await telegramChatId(msg.token); sendResponse({ ok: !!chat, chat }); return; }
       if (msg.__tg) { await sendTelegram(msg.token, msg.chat, msg.text); sendResponse({ ok: true }); return; }
       if (msg.type === "candles") sendResponse({ ok: true, candles: await fetchCandles(msg.symbol) });
       else if (msg.type === "picks") sendResponse({ ok: true, picks: await fetchPicks() });

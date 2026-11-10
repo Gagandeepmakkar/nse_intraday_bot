@@ -27,7 +27,10 @@
     equity: 100000, riskPct: 0.5,
     sound: true, alerts: true,
     maxTrades: 3, maxLossR: 2.0,     // daily kill-switch
-    tgToken: "", tgChat: ""           // optional free Telegram alerts
+    // Telegram: paste your bot token in Settings ONCE — it persists in chrome.storage
+    // forever (never committed, so it stays off GitHub). Press Start in your bot, then
+    // "Connect" auto-fills the chat id. Default left blank on purpose for security.
+    tgToken: "", tgChat: ""
   };
   let CFG = Object.assign({}, DEFAULTS);
   function loadCfg(cb) {
@@ -135,6 +138,7 @@
       '<div id="nlc-foot">Real-time via your Groww session · paper-trade · NOT advice — execute manually.</div>' +
       '</div>';
     document.body.appendChild(p);
+    try { new ResizeObserver(() => { const dv = $("nlc-chart"); if (S.chart && dv) S.chart.applyOptions({ width: dv.clientWidth }); }).observe(p); } catch (e) {}
     $("nlc-min").onclick = () => p.classList.toggle("min");
     $("nlc-gear").onclick = () => $("nlc-settings").classList.toggle("hidden");
     const tf = $("nlc-tf"); tf.value = String(S.interval);
@@ -147,7 +151,18 @@
     $("nlc-exp").onclick = exportCsv;
     $("nlc-clr").onclick = () => { if (confirm("Reset today's stats and journal?")) { STATS = { day: todayStr(), trades: 0, wins: 0, losses: 0, cumR: 0, sumWinR: 0, sumLossR: 0 }; JOURNAL = []; saveStats(); renderStats(); renderJournal(); } };
     $("set-save").onclick = readSettingsUI;
-    $("set-tgtest").onclick = () => { CFG.tgToken = $("set-tgtoken").value.trim(); CFG.tgChat = $("set-tgchat").value.trim(); telegram("✅ VIM test alert — Telegram connected."); };
+    $("set-tgtest").onclick = () => {
+      CFG.tgToken = $("set-tgtoken").value.trim(); CFG.tgChat = $("set-tgchat").value.trim();
+      if (!CFG.tgToken) return;
+      if (CFG.tgChat) { saveCfg(); telegram("✅ VIM test alert — Telegram connected."); return; }
+      $("nlc-status").textContent = "connecting Telegram…";
+      try {
+        chrome.runtime.sendMessage({ __tgConnect: true, token: CFG.tgToken }, (r) => {
+          if (r && r.ok && r.chat) { CFG.tgChat = r.chat; $("set-tgchat").value = r.chat; saveCfg(); telegram("✅ VIM test alert — Telegram connected."); }
+          else $("nlc-status").textContent = "press Start in your bot, then retry";
+        });
+      } catch (e) {}
+    };
     syncSettingsUI();
     const h = $("nlc-head"); let sx, sy, ox, oy, drag = false;
     h.addEventListener("mousedown", (e) => { if (e.target.id === "nlc-min" || e.target.id === "nlc-gear") return; drag = true; sx = e.clientX; sy = e.clientY; const r = p.getBoundingClientRect(); ox = r.left; oy = r.top; e.preventDefault(); });
