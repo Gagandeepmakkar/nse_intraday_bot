@@ -9,6 +9,11 @@ LOG="cron.log"
   echo "===== $(date '+%Y-%m-%d %H:%M:%S %Z') ====="
   source .venv/bin/activate
   python track.py || true          # grade yesterday's picks
+  # Pre-market intelligence briefing — only in the first (pre-open) slot of the day,
+  # when BRIEF_SYMBOLS is configured in .env. Pushes to phone (ntfy) + email.
+  if [ "$(TZ=Asia/Kolkata date +%H%M)" -lt "0915" ]; then
+    python briefing.py --ntfy --email || echo "briefing.py exited non-zero"
+  fi
   python bot.py || echo "bot.py exited non-zero"
 } >> "$LOG" 2>&1
 
