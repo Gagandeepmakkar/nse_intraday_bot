@@ -7,7 +7,9 @@
 #nse-live-confirm * { box-sizing: border-box; }
 #nlc-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; cursor: move; background: #11161d; border-bottom: 1px solid #1e2733; }
 #nlc-head .t { font-weight: 800; font-size: 13px; letter-spacing: .3px; }
-#nlc-head .s { margin-left: auto; font-size: 10px; color: #8a94a2; }
+#nlc-head .s { font-size: 10px; color: #8a94a2; }
+#nlc-head #nlc-live { margin-left: auto; font-size: 12px; font-weight: 800; color: #22d36f; letter-spacing: .2px; }
+#nlc-head #nlc-status { margin-left: 8px; }
 #nlc-min { cursor: pointer; color: #9aa4b2; font-weight: 700; padding: 0 4px; }
 #nlc-body { padding: 12px; }
 #nlc-state { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }

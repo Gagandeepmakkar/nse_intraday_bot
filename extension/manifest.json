@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "NSE Groww Live — VIM",
-  "version": "1.2.0",
-  "description": "Live VIM trade assistant on your Groww chart (parity with vim_nse.pine): opening-range + VWAP momentum regime, reversal-timed pullback entry, 1.2-ATR stop, vol-targeted share size, +1R scale / trail exits, mini chart, desktop alerts. Uses your own real-time Groww session data. Manual execution only.",
+  "version": "1.3.0",
+  "description": "Live VIM trade assistant on your Groww chart (parity with vim_nse.pine): opening-range + VWAP momentum regime, reversal-timed pullback entry, 1.2-ATR stop, vol-targeted share size, +1R scale / trail exits. Real-time: reads Groww's own on-page live price every 1s for instant stop/target alerts (no extra network calls, no rate-limit risk); setup computed on closed bars to stay whipsaw-free. Mini chart + desktop alerts. Manual execution only.",
   "action": {
     "default_popup": "popup.html",
     "default_title": "NSE Groww Live"

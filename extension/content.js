@@ -15,7 +15,8 @@
     url: "", auth: "", symbol: "", interval: 5,
     phase: 0, entry: 0, stop: 0, t1: 0, t2: 0, t1done: false, eScore: 0,
     chart: null, series: null, lines: [], lastBetterAt: 0,
-    equity: 100000, riskPct: 0.5, shares: 0
+    equity: 100000, riskPct: 0.5, shares: 0,
+    livePrice: 0, priceSel: "", priceEl: null
   };
 
   window.addEventListener("message", (e) => {
@@ -49,7 +50,7 @@
     const p = document.createElement("div");
     p.id = "nse-live-confirm";
     p.innerHTML =
-      '<div id="nlc-head"><span class="t">VIM Live ⚡</span><span class="s" id="nlc-status">…</span><span id="nlc-min" title="minimize">—</span></div>' +
+      '<div id="nlc-head"><span class="t">VIM Live ⚡</span><span class="s" id="nlc-live" title="live price (1s)">₹–</span><span class="s" id="nlc-status">…</span><span id="nlc-min" title="minimize">—</span></div>' +
       '<div id="nlc-body">' +
       '<div id="nlc-state"><span id="nlc-action" class="WAIT">—</span><span id="nlc-score">—</span></div>' +
       '<div id="nlc-tfrow">Entry timeframe: <select id="nlc-tf"><option value="3">3 min</option><option value="5" selected>5 min</option><option value="15">15 min</option></select> <span id="nlc-htf"></span></div>' +
@@ -109,18 +110,12 @@
     return (j.candles || []).map((a) => ({ t: a[0], o: a[1], h: a[2], l: a[3], c: a[4], v: a[5] }));
   }
 
-  // One-trade state machine on live candles.
-  function machine(candles, d) {
-    const last = candles[candles.length - 1];
-    const hi = last.h, lo = last.l;
-    if (S.phase === 0) {
-      if (d.levels && (d.action === "BUY" || d.action === "SELL")) {
-        S.phase = d.action === "BUY" ? 1 : -1;
-        S.entry = d.levels.entry; S.stop = d.levels.stop; S.t1 = d.levels.target1; S.t2 = d.levels.target2;
-        S.t1done = false; S.eScore = d.score;
-        notify((d.action === "BUY" ? "🟢 BUY " : "🔴 SELL ") + S.symbol, "@" + S.entry.toFixed(2) + "  SL " + S.stop.toFixed(2) + "  T1 " + S.t1.toFixed(2) + "  T2 " + S.t2.toFixed(2) + "  (score " + S.score + ")");
-      }
-    } else if (S.phase === 1) {
+  // Real-time exit check against the fixed trade levels. Called BOTH by the 1s live-price
+  // ticker (hi=lo=live price, for instant stop/target alerts) and by the bar refresh
+  // (hi/lo of the closed bar, a safety net catching any wick the 1s samples missed).
+  // Safe to call from both: reset()/t1done guards make repeat calls no-ops.
+  function checkExits(hi, lo) {
+    if (S.phase === 1) {
       if (lo <= S.stop) { notify("⛔ STOP " + S.symbol, "Exit — stop hit"); reset(); }
       else {
         if (!S.t1done && hi >= S.t1) { S.t1done = true; S.stop = S.entry; notify("🎯 +1R " + S.symbol, "Book 1/3, trail the rest (stop → breakeven)"); }
@@ -133,12 +128,73 @@
         if (lo <= S.t2) { notify("✅ +3R " + S.symbol, "Runner hit — exit or keep trailing"); reset(); }
       }
     }
+  }
+
+  // One-trade state machine on CLOSED live candles. Entries stay bar-close confirmed
+  // (whipsaw-free); exits are handled in real time by checkExits() from the 1s ticker.
+  function machine(candles, d) {
+    const last = candles[candles.length - 1];
+    if (S.phase === 0) {
+      if (d.levels && (d.action === "BUY" || d.action === "SELL")) {
+        S.phase = d.action === "BUY" ? 1 : -1;
+        S.entry = d.levels.entry; S.stop = d.levels.stop; S.t1 = d.levels.target1; S.t2 = d.levels.target2;
+        S.t1done = false; S.eScore = d.score;
+        notify((d.action === "BUY" ? "🟢 BUY " : "🔴 SELL ") + S.symbol, "@" + S.entry.toFixed(2) + "  SL " + S.stop.toFixed(2) + "  T1 " + S.t1.toFixed(2) + "  T2 " + S.t2.toFixed(2) + "  (score " + S.score + ")");
+      }
+    } else {
+      checkExits(last.h, last.l);  // bar-level safety net; the 1s ticker does the fast checks
+    }
     // stronger-setup flag while in a trade
     const better = S.phase !== 0 && (d.action === "BUY" || d.action === "SELL") && d.score >= S.eScore + BETTER_MARGIN;
     const el = $("nlc-better");
     if (el) {
       if (better) { el.textContent = "★ Stronger setup: " + d.action + " score " + d.score + " (open " + S.eScore + ") — consider switching"; el.classList.add("show"); if (Date.now() - S.lastBetterAt > 60000) { S.lastBetterAt = Date.now(); notify("★ Stronger setup " + S.symbol, d.action + " score " + d.score + " > open " + S.eScore); } }
       else el.classList.remove("show");
+    }
+  }
+
+  // ---- Live price straight off Groww's page (no network call = no rate-limit blockers).
+  // Groww already streams the LTP into the DOM via its own socket; we just read it.
+  function parsePrice(el) {
+    if (!el) return null;
+    const t = (el.textContent || "").replace(/[₹,\s]/g, "");
+    return /^\d+(\.\d{1,2})?$/.test(t) ? parseFloat(t) : null;
+  }
+  function readLivePrice() {
+    // 1) the exact element we found before — cheapest, no DOM scan
+    if (S.priceEl && S.priceEl.isConnected) { const v = parsePrice(S.priceEl); if (v) return v; }
+    if (S.priceSel) { const el = document.querySelector(S.priceSel); const v = parsePrice(el); if (v) { S.priceEl = el; return v; } }
+    // 2) common Groww LTP containers
+    const cands = ['[data-testid*="ltp" i]', '[class*="ltp" i]', '[class*="lastPrice" i]', '[class*="livePrice" i]'];
+    for (const sel of cands) {
+      const els = document.querySelectorAll(sel);
+      for (const el of els) { const v = parsePrice(el); if (v) { S.priceSel = sel; S.priceEl = el; return v; } }
+    }
+    // 3) heuristic (runs only until an element caches): biggest ₹-price in the top of the page
+    let bestEl = null, best = null, bestSize = 0;
+    const rx = /₹\s?[\d,]+\.\d{2}/;
+    const all = document.querySelectorAll("span, div, h1, h2, p");
+    for (const el of all) {
+      if (el.children.length) continue;                 // leaf nodes only
+      if (!rx.test(el.textContent || "")) continue;
+      const r = el.getBoundingClientRect();
+      if (r.top < 0 || r.top > window.innerHeight * 0.4 || r.width === 0) continue;
+      const size = parseFloat(getComputedStyle(el).fontSize) || 0;
+      if (size > bestSize) { const v = parsePrice(el); if (v) { best = v; bestSize = size; bestEl = el; } }
+    }
+    if (bestEl) S.priceEl = bestEl;                      // cache so step 1 handles next ticks
+    return best;
+  }
+
+  // 1-second ticker: refresh the displayed price instantly and fire exits in real time.
+  function tick() {
+    if (S.phase === 0 && !$("nlc-action")) return;
+    const p = readLivePrice();
+    if (p) {
+      S.livePrice = p;
+      const pv = $("nlc-live");
+      if (pv) pv.textContent = "₹" + p.toFixed(2);
+      if (S.phase !== 0) checkExits(p, p);   // instant stop / +1R / +3R on the live tick
     }
   }
 
@@ -188,7 +244,8 @@
 
   function init() {
     build();
-    setInterval(refresh, 10000);
+    setInterval(refresh, 5000);   // setup/signal on closed bars (no rate-limit risk at 5s)
+    setInterval(tick, 1000);      // live price + real-time exits, read off the page (no network)
     setInterval(ensurePanel, 3000);
     setTimeout(refresh, 2500);
     window.addEventListener("resize", () => { if (S.chart && $("nlc-chart")) S.chart.applyOptions({ width: $("nlc-chart").clientWidth }); });
