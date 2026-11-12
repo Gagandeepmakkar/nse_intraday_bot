@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "NSE Groww Live — VIM",
-  "version": "2.1.0",
-  "description": "VIM live trade assistant for Groww: real-time on-page price (sanity-checked), momentum-regime + reversal-timed entries respecting key levels, vol-targeted sizing, +1R scale then stop-to-breakeven exits, persisted settings + panel geometry, strategy selector (VIM/Scanner), live stats (R / expectancy / Kelly), self-logging journal (CSV + auto-audit), daily kill-switch, free ntfy/Telegram alerts. Real-time off your own Groww session. Manual execution only.",
+  "version": "3.0.0",
+  "description": "VIM Live — Groww trade assistant. Price & signals from your Groww candle feed (no page-scraping), confluence Signals mode (trend+momentum+trigger+news) confirmed on closed bars, VIM/Scanner modes, vol-targeted sizing, live stats (R/expectancy/Kelly), self-logging journal + nightly auto-audit, daily kill-switch, free ntfy/Telegram alerts, clean production UI. Runs locally off your Groww session. Manual execution only.",
   "action": {
     "default_popup": "popup.html",
     "default_title": "VIM Live"

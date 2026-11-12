@@ -1,78 +1,111 @@
-#nse-live-confirm {
-  position: fixed; top: 80px; right: 18px; z-index: 2147483647;
-  width: 340px; background: #0b0f14; color: #e6e9ee;
-  border: 1px solid #263040; border-radius: 14px; box-shadow: 0 12px 48px rgba(0,0,0,.6);
-  font: 13px/1.45 -apple-system, Segoe UI, Roboto, sans-serif;
-  overflow: auto;
-  min-width: 300px; max-width: 96vw; min-height: 150px; max-height: 92vh;
+/* VIM Live — production UI. Scoped under #vim-panel so Groww's styles never bleed in. */
+#vim-panel {
+  position: fixed; top: 76px; right: 18px; z-index: 2147483647;
+  width: 340px; min-width: 300px; max-width: 96vw; min-height: 160px; max-height: 92vh;
+  display: flex; flex-direction: column; overflow: hidden;
+  background: #0c0f14; color: #e8eaed;
+  border: 1px solid #222a35; border-radius: 16px;
+  box-shadow: 0 16px 56px rgba(0, 0, 0, .55);
+  font: 13px/1.45 -apple-system, "Segoe UI", Roboto, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
-#nlc-resize { position: absolute; right: 2px; bottom: 2px; width: 18px; height: 18px;
-  cursor: nwse-resize; color: #6f7986; font-size: 13px; line-height: 18px; text-align: center;
-  z-index: 3; user-select: none; }
-#nlc-resize:hover { color: #e6e9ee; }
-#nse-live-confirm.min #nlc-resize { display: none; }
-#nse-live-confirm * { box-sizing: border-box; }
-#nlc-head { display: flex; align-items: center; gap: 6px; padding: 10px 12px; cursor: move; background: #11161d; border-bottom: 1px solid #1e2733; flex-wrap: nowrap; }
-#nlc-head .t { font-weight: 800; font-size: 13px; letter-spacing: .3px; white-space: nowrap; flex: 0 0 auto; }
-#nlc-head .s { font-size: 10px; color: #8a94a2; }
-#nlc-head #nlc-live { margin-left: auto; font-size: 12px; font-weight: 800; color: #22d36f; letter-spacing: .2px; flex: 0 0 auto; white-space: nowrap; }
-#nlc-head #nlc-status { margin-left: 6px; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
-#nlc-min { cursor: pointer; color: #9aa4b2; font-weight: 700; padding: 0 4px; }
-#nlc-body { padding: 12px; }
-#nlc-state { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
-#nlc-action { font-size: 24px; font-weight: 900; letter-spacing: .5px; }
-#nlc-action.BUY, #nlc-action.LONG { color: #22d36f; }
-#nlc-action.SELL, #nlc-action.SHORT { color: #ff5c6c; }
-#nlc-action.WAIT, #nlc-action.HOLD, #nlc-action.FLAT { color: #9aa4b2; }
-#nlc-score { margin-left: auto; font-size: 12px; font-weight: 700; padding: 3px 9px; border-radius: 999px; background: #1a2230; color: #c3cad6; }
-#nlc-score.hi { background: #10331f; color: #4ade80; }
-#nlc-tfrow { font-size: 11px; color: #8a94a2; margin-bottom: 9px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-#nlc-tf { background: #1a2230; color: #e6e9ee; border: 1px solid #2a3647; border-radius: 6px; padding: 3px 6px; font-size: 11px; }
-#nlc-htf { color: #c3cad6; }
-#nlc-alert { width: 100%; padding: 7px; margin-bottom: 10px; background: #1a2230; color: #38bdf8; border: 1px solid #2a3647; border-radius: 8px; font-weight: 700; font-size: 12px; cursor: pointer; }
-#nlc-alert:hover { background: #22304180; }
-#nlc-sub { font-size: 11px; color: #8a94a2; margin-bottom: 10px; }
-#nlc-levels { display: grid; grid-template-columns: repeat(4,1fr); gap: 6px; margin-bottom: 10px; }
-.nlc-lv { background: #11161d; border: 1px solid #1e2733; border-radius: 8px; padding: 6px 4px; text-align: center; }
-.nlc-lv .k { font-size: 9px; color: #8a94a2; text-transform: uppercase; letter-spacing: .4px; }
-.nlc-lv .v { font-size: 13px; font-weight: 700; }
-.nlc-lv.sl .v { color: #ff5c6c; } .nlc-lv.t1 .v { color: #ffd23f; } .nlc-lv.t2 .v { color: #22d36f; } .nlc-lv.en .v { color: #38bdf8; }
-#nlc-chart { height: 180px; border: 1px solid #1e2733; border-radius: 10px; overflow: hidden; margin-bottom: 10px; }
-#nlc-ev { font-size: 11px; color: #aab3c0; background: #11161d; border: 1px solid #1e2733; border-radius: 8px; padding: 6px 9px; margin-bottom: 6px; }
-#nlc-ev b { color: #e6e9ee; }
-#nlc-better { display: none; font-size: 12px; font-weight: 700; color: #fff; background: #a21caf; border-radius: 8px; padding: 7px 10px; margin-bottom: 8px; }
-#nlc-better.show { display: block; }
-#nlc-foot { font-size: 10px; color: #6f7986; }
-#nse-live-confirm.min #nlc-body { display: none; }
+#vim-panel * { box-sizing: border-box; margin: 0; }
+#vim-panel.min { max-height: none; height: auto; }
+#vim-panel.min #vim-body, #vim-panel.min #vim-resize { display: none; }
 
-/* --- v2 production UI --- */
-#nlc-gear { cursor: pointer; color: #9aa4b2; font-size: 13px; padding: 0 4px; }
-#nlc-gear:hover { color: #e6e9ee; }
-.hidden { display: none !important; }
-#nlc-banner { display: none; background: #3b1113; color: #ff8a93; border: 1px solid #5c1a1f; border-radius: 8px; padding: 6px 9px; margin-bottom: 9px; font-size: 11px; font-weight: 700; }
-#nlc-banner.show { display: block; }
-#nlc-tfrow select { background: #1a2230; color: #e6e9ee; border: 1px solid #2a3647; border-radius: 6px; padding: 2px 5px; font-size: 11px; }
-#nlc-stats { display: flex; gap: 6px; margin: 8px 0; }
-.nlc-st { flex: 1; background: #11161d; border: 1px solid #1e2733; border-radius: 8px; padding: 5px 3px; text-align: center; }
-.nlc-st span { display: block; font-size: 8px; color: #8a94a2; text-transform: uppercase; letter-spacing: .3px; }
-.nlc-st b { font-size: 12px; font-weight: 800; }
-.pos { color: #22d36f; } .neg { color: #ff5c6c; } .muted { color: #6f7986; }
-#nlc-jrow { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
-#nlc-jtitle { font-size: 11px; font-weight: 700; color: #c3cad6; margin-right: auto; }
-.nlc-mini { background: #1a2230; color: #c3cad6; border: 1px solid #2a3647; border-radius: 6px; padding: 2px 7px; font-size: 10px; cursor: pointer; }
-.nlc-mini:hover { background: #22304180; }
-#nlc-journal { margin-bottom: 8px; }
-.nlc-je { display: flex; justify-content: space-between; font-size: 11px; padding: 2px 0; border-bottom: 1px solid #141b24; color: #aab3c0; }
-.nlc-je b i { font-style: normal; color: #6f7986; font-size: 9px; }
-#nlc-settings { background: #0c1117; border: 1px solid #1e2733; border-radius: 10px; padding: 10px; margin-bottom: 8px; }
-.nlc-sgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px 10px; margin-bottom: 10px; }
-.nlc-f { display: flex; flex-direction: column; font-size: 10px; color: #8a94a2; min-width: 0; }
-.nlc-f span { margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.nlc-f input { width: 100%; background: #1a2230; color: #e6e9ee; border: 1px solid #2a3647; border-radius: 6px; padding: 5px 7px; font-size: 12px; }
-.nlc-chk { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #c3cad6; margin: 4px 0; }
-.nlc-chk input { width: auto; }
-.nlc-tg { display: flex; flex-direction: column; font-size: 10px; color: #8a94a2; margin: 10px 0; }
-.nlc-tg input { width: 100%; background: #1a2230; color: #e6e9ee; border: 1px solid #2a3647; border-radius: 6px; padding: 5px 7px; font-size: 12px; margin-top: 5px; }
-.nlc-tg .nlc-mini { align-self: flex-start; margin-top: 6px; }
-.nlc-save { width: 100%; background: #10331f; color: #4ade80; border: 1px solid #1c5235; border-radius: 8px; padding: 7px; font-weight: 700; font-size: 12px; cursor: pointer; margin-top: 4px; }
-.nlc-save:hover { background: #124227; }
+/* header */
+#vim-head { display: flex; align-items: center; gap: 8px; padding: 11px 13px;
+  background: linear-gradient(180deg, #141922, #0e121a); border-bottom: 1px solid #1c242f; cursor: move; flex: 0 0 auto; }
+#vim-dot { width: 8px; height: 8px; border-radius: 50%; background: #3fcf6b; box-shadow: 0 0 8px #3fcf6b88; flex: 0 0 auto; transition: background .3s; }
+#vim-dot.stale { background: #e0b341; box-shadow: 0 0 8px #e0b34188; }
+#vim-dot.off { background: #ff5b6b; box-shadow: 0 0 8px #ff5b6b88; }
+#vim-logo { font-weight: 800; letter-spacing: .4px; font-size: 13px; flex: 0 0 auto; }
+#vim-sym { font-size: 11px; color: #8b95a3; font-weight: 600; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#vim-price { margin-left: auto; font-weight: 800; font-size: 14px; color: #e8eaed; font-variant-numeric: tabular-nums; flex: 0 0 auto; }
+#vim-head .ic { cursor: pointer; color: #8b95a3; font-size: 14px; width: 20px; height: 20px; display: grid; place-items: center; border-radius: 6px; flex: 0 0 auto; }
+#vim-head .ic:hover { color: #e8eaed; background: #1b232e; }
+
+/* body scroll */
+#vim-body { padding: 12px; overflow-y: auto; flex: 1 1 auto; }
+#vim-body::-webkit-scrollbar { width: 7px; }
+#vim-body::-webkit-scrollbar-thumb { background: #232c38; border-radius: 4px; }
+
+/* banner */
+#vim-banner { display: none; font-size: 11.5px; font-weight: 700; padding: 8px 10px; border-radius: 9px; margin-bottom: 11px; }
+#vim-banner.show { display: block; }
+#vim-banner.warn { background: #3a1114; color: #ff93a0; border: 1px solid #5a1a20; }
+#vim-banner.info { background: #10261f; color: #7fe0b0; border: 1px solid #1c5235; }
+
+/* hero: action + score */
+#vim-hero { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+#vim-action { font-size: 23px; font-weight: 900; letter-spacing: .5px; line-height: 1; }
+#vim-action.WAIT, #vim-action.HOLD { color: #8b95a3; }
+#vim-action.BUY, #vim-action.LONG { color: #3fcf6b; }
+#vim-action.SELL, #vim-action.SHORT { color: #ff5b6b; }
+#vim-score { margin-left: auto; text-align: right; flex: 0 0 auto; }
+#vim-scoretext { font-weight: 800; font-size: 15px; font-variant-numeric: tabular-nums; }
+#vim-scorebar { width: 92px; height: 5px; background: #1c242f; border-radius: 3px; overflow: hidden; margin-top: 4px; }
+#vim-scorefill { height: 100%; width: 0; background: #4b5563; border-radius: 3px; transition: width .3s, background .3s; }
+#vim-scorefill.hi { background: #3fcf6b; } #vim-scorefill.mid { background: #e0b341; }
+
+#vim-reason { font-size: 11.5px; color: #96a0ad; margin-bottom: 10px; min-height: 16px; }
+
+/* factor chips */
+#vim-factors { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 11px; }
+#vim-factors:empty { display: none; }
+.vim-chip { font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 999px; border: 1px solid transparent; }
+.vim-chip.on { background: #10281d; color: #4ade80; border-color: #1c4b32; }
+.vim-chip.off { background: #1a2029; color: #6b7684; border-color: #28313d; }
+
+/* enable-alerts cta */
+#vim-cta { width: 100%; padding: 8px; margin-bottom: 11px; background: #15202e; color: #4cc2ff; border: 1px solid #244258; border-radius: 9px; font-weight: 700; font-size: 12px; cursor: pointer; }
+#vim-cta:hover { background: #1a2938; }
+
+/* levels grid */
+#vim-levels { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 11px; }
+#vim-levels:empty { display: none; }
+.vim-lv { background: #10151d; border: 1px solid #1b232e; border-radius: 9px; padding: 7px 4px; text-align: center; }
+.vim-lv .k { font-size: 8.5px; color: #8b95a3; text-transform: uppercase; letter-spacing: .4px; }
+.vim-lv .v { font-size: 13px; font-weight: 800; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.vim-lv.en .v { color: #4cc2ff; } .vim-lv.sl .v { color: #ff5b6b; } .vim-lv.t1 .v { color: #e0b341; } .vim-lv.t2 .v { color: #3fcf6b; }
+
+#vim-chart { height: 150px; border: 1px solid #1b232e; border-radius: 11px; overflow: hidden; margin-bottom: 11px; }
+#vim-meta { font-size: 11px; color: #96a0ad; margin-bottom: 11px; line-height: 1.7; }
+#vim-meta b { color: #cfd5dd; }
+
+/* stats */
+#vim-stats { display: flex; gap: 6px; margin-bottom: 11px; }
+.vim-st { flex: 1; background: #10151d; border: 1px solid #1b232e; border-radius: 9px; padding: 7px 3px; text-align: center; }
+.vim-st span { display: block; font-size: 8px; color: #8b95a3; text-transform: uppercase; letter-spacing: .3px; }
+.vim-st b { font-size: 13px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.pos { color: #3fcf6b; } .neg { color: #ff5b6b; } .muted { color: #6b7684; }
+
+/* collapsible sections */
+.vim-sec { border-top: 1px solid #171e27; }
+.vim-sec-h { display: flex; align-items: center; justify-content: space-between; padding: 10px 2px; font-size: 11.5px; font-weight: 700; color: #cfd5dd; cursor: pointer; user-select: none; }
+.vim-sec-h .act { display: flex; gap: 6px; }
+.vim-sec-b { padding-bottom: 10px; }
+.vim-sec-b.hidden { display: none; }
+.vim-caret { color: #6b7684; font-size: 10px; transition: transform .2s; }
+.vim-sec.open .vim-caret { transform: rotate(180deg); }
+
+.vim-mini { background: #1b232e; color: #cfd5dd; border: 1px solid #28313d; border-radius: 7px; padding: 3px 9px; font-size: 10px; cursor: pointer; }
+.vim-mini:hover { background: #222c38; }
+.vim-je { display: flex; justify-content: space-between; font-size: 11px; padding: 3px 0; border-bottom: 1px solid #141b24; color: #aab3c0; }
+.vim-je b i { font-style: normal; color: #6b7684; font-size: 9px; }
+
+/* settings form */
+.vim-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px 10px; margin-bottom: 11px; }
+.vim-f { display: flex; flex-direction: column; font-size: 10px; color: #8b95a3; min-width: 0; }
+.vim-f span { margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vim-f input, .vim-f select { width: 100%; background: #141a22; color: #e8eaed; border: 1px solid #28313d; border-radius: 7px; padding: 6px 8px; font-size: 12px; }
+.vim-chk { display: flex; align-items: center; gap: 7px; font-size: 12px; color: #cfd5dd; margin: 5px 0; }
+.vim-chk input { width: auto; }
+.vim-note { font-size: 10px; color: #8b95a3; margin: 9px 0 5px; }
+.vim-note input { width: 100%; background: #141a22; color: #e8eaed; border: 1px solid #28313d; border-radius: 7px; padding: 6px 8px; font-size: 12px; margin-top: 5px; }
+.vim-save { width: 100%; background: #10331f; color: #5ee490; border: 1px solid #1c5235; border-radius: 9px; padding: 8px; font-weight: 700; font-size: 12px; cursor: pointer; margin-top: 7px; }
+.vim-save:hover { background: #124227; }
+
+#vim-foot { font-size: 9.5px; color: #5a6472; padding-top: 10px; border-top: 1px solid #171e27; line-height: 1.5; }
+#vim-resize { position: absolute; right: 3px; bottom: 3px; width: 16px; height: 16px; cursor: nwse-resize; color: #5a6472; font-size: 11px; line-height: 16px; text-align: center; z-index: 3; user-select: none; }
+#vim-resize:hover { color: #cfd5dd; }
