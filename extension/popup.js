@@ -3,12 +3,12 @@
 // Everything is backed by chrome.storage.local, shared live with the content script.
 
 const DEFAULTS = {
-  strategy: "vim", interval: 5, orMinutes: 20, minADX: 20, stopATR: 1.2, r1: 1.0, r2: 3.0,
+  strategy: "signals", minScore: 60, interval: 5, orMinutes: 20, minADX: 20, stopATR: 1.5, r1: 1.5, r2: 3.0,
   equity: 100000, riskPct: 0.5, sound: true, alerts: true, maxTrades: 3, maxLossR: 2.0,
   ntfyTopic: "", tgToken: "", tgChat: ""
 };
 const $ = (id) => document.getElementById(id);
-const NUMS = ["equity", "riskPct", "orMinutes", "minADX", "stopATR", "r1", "r2", "maxTrades", "maxLossR"];
+const NUMS = ["equity", "riskPct", "orMinutes", "minADX", "stopATR", "r1", "r2", "minScore", "maxTrades", "maxLossR"];
 const SELS = ["strategy", "interval"];
 const TXTS = ["ntfyTopic", "tgToken", "tgChat"];
 const CHKS = ["sound", "alerts"];

@@ -17,6 +17,31 @@ import analyze as analyzer
 DB = "signals.db"
 PORT = 8787
 JOURNAL = "journal.jsonl"   # append-only record of every signal/outcome the extension emits
+_NEWS_CACHE = {}            # { "SYMBOL|YYYY-MM-DD": {sentiment, caution, headlines} }
+
+
+def news_verdict(symbol):
+    """Per-symbol news read for the extension's confluence signal: Gemini (if a key is
+    set) else keyword sentiment, plus an event-risk caution. Cached per symbol per day
+    so we don't refetch on every signal. Deterministic-safe: never predicts price."""
+    from datetime import date
+    key = f"{symbol}|{date.today().isoformat()}"
+    if key in _NEWS_CACHE:
+        return _NEWS_CACHE[key]
+    out = {"sentiment": "neutral", "caution": "none", "headlines": []}
+    try:
+        import briefing
+        heads = briefing.fetch_news(symbol)
+        out["headlines"] = heads[:5]
+        ai = briefing.ai_news(symbol, heads)
+        if ai:
+            out["sentiment"], out["caution"] = ai[0], ai[1]
+        else:
+            out["sentiment"] = briefing.sentiment(heads)[0].split()[0]  # "bullish"/"bearish"/"mixed"
+    except Exception as e:
+        out["caution"] = f"(news unavailable: {e})"
+    _NEWS_CACHE[key] = out
+    return out
 
 
 def append_log(events):
@@ -95,6 +120,13 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         if parsed.path.startswith("/picks"):
             self._send(200, json.dumps(latest_picks()).encode())
+        elif parsed.path.startswith("/news"):
+            q = parse_qs(parsed.query)
+            sym = (q.get("symbol") or [""])[0].strip().upper()
+            if not sym:
+                self._send(400, b'{"error":"symbol required"}')
+                return
+            self._send(200, json.dumps(news_verdict(sym)).encode())
         elif parsed.path.startswith("/analyze"):
             q = parse_qs(parsed.query)
             sym = (q.get("symbol") or [""])[0].strip().upper()

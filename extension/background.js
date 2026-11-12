@@ -74,6 +74,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         } catch (e) { sendResponse({ ok: false }); }   // server not running — kept in chrome.storage, synced later
         return;
       }
+      if (msg.__news) {
+        try {
+          const r = await fetch("http://127.0.0.1:8787/news?symbol=" + encodeURIComponent(msg.symbol), { cache: "no-store" });
+          sendResponse(r.ok ? await r.json() : { sentiment: "neutral", caution: "none" });
+        } catch (e) { sendResponse({ sentiment: "neutral", caution: "none" }); }  // server off -> neutral
+        return;
+      }
       if (msg.__ntfy) { const ok = await sendNtfy(msg.topic, msg.title, msg.text); sendResponse({ ok }); return; }
       if (msg.__tgConnect) { const chat = await telegramChatId(msg.token); sendResponse({ ok: !!chat, chat }); return; }
       if (msg.__tg) { const res = await sendTelegram(msg.token, msg.chat, msg.text); sendResponse({ ok: !!(res && res.ok), desc: res && res.description }); return; }

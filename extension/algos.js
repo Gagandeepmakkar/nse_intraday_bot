@@ -393,7 +393,73 @@
     };
   }
 
-  const api = { ema, rsi, atr, sessionVwap, adxDMI, supertrend, htfTrendOf, decide, swingDecide, vimDecide, ALGOS };
+  // SIGNAL — confluence engine (reactive, never predictive). Fires a clear BUY/SELL only
+  // when TREND + MOMENTUM + TRIGGER agree AND the news isn't against it / event-risky.
+  // Returns a `factors` breakdown so the UI can show WHY it fired. opts = { minScore,
+  // stopATR, r1, r2, news:{sentiment,caution} }.
+  function signalDecide(candles, opts) {
+    opts = opts || {};
+    const minScore = opts.minScore || 60;
+    const stopATRm = opts.stopATR || 1.5;
+    const r1 = opts.r1 || 1.5, r2 = opts.r2 || 3.0;
+    const news = opts.news || {};
+    const nsent = (news.sentiment || "neutral").toLowerCase();
+    const eventRisk = !!news.caution && String(news.caution).toLowerCase().replace(/[^a-z]/g, "") !== "none" && String(news.caution).toLowerCase().indexOf("unavailable") === -1;
+    if (!candles || candles.length < 55) return { action: "WAIT", note: "loading candles…", score: 0, trend: "?" };
+    const closes = candles.map(c => c.c);
+    const i = closes.length - 1, price = closes[i];
+    const a = atr(candles) || price * 0.003;
+    const e9 = ema(closes, 9), e21 = ema(closes, 21), e50 = ema(closes, 50);
+    const r = rsi(closes) || 50;
+    const vw = sessionVwap(candles);
+    const { adx, plusDI, minusDI } = adxDMI(candles, 14);
+    const mh = macdHistAt(closes);
+    const { dir } = supertrend(candles, 10, 3);
+    const hiBreak = price > Math.max.apply(null, candles.slice(-11, -1).map(c => c.h));
+    const loBreak = price < Math.min.apply(null, candles.slice(-11, -1).map(c => c.l));
+
+    const W = { trend: 25, vwap: 15, adx: 20, mom: 15, trigger: 15, news: 10 };
+    const Lf = {
+      trend: e9[i] > e21[i] && e21[i] > e50[i],
+      vwap: price > vw,
+      adx: adx >= 20 && plusDI > minusDI,
+      mom: r >= 50 && r <= 72 && mh.hist > 0,
+      trigger: dir[i] === 1 && (hiBreak || dir[i - 1] === -1),
+      news: nsent !== "bearish"
+    };
+    const Sf = {
+      trend: e9[i] < e21[i] && e21[i] < e50[i],
+      vwap: price < vw,
+      adx: adx >= 20 && minusDI > plusDI,
+      mom: r <= 50 && r >= 28 && mh.hist < 0,
+      trigger: dir[i] === -1 && (loBreak || dir[i - 1] === 1),
+      news: nsent !== "bullish"
+    };
+    const scoreOf = (f) => Object.keys(W).reduce((s, k) => s + (f[k] ? W[k] : 0), 0);
+    const longScore = scoreOf(Lf), shortScore = scoreOf(Sf);
+    const trend = Lf.trend ? "UP" : Sf.trend ? "DOWN" : "FLAT";
+
+    let action = "HOLD", levels = null, factors = null;
+    if (!eventRisk && longScore >= minScore && Lf.trend && Lf.adx && Lf.trigger) {
+      const stop = price - stopATRm * a, risk = price - stop;
+      action = "BUY"; levels = { entry: price, stop, target1: price + r1 * risk, target2: price + r2 * risk }; factors = Lf;
+    } else if (!eventRisk && shortScore >= minScore && Sf.trend && Sf.adx && Sf.trigger) {
+      const stop = price + stopATRm * a, risk = stop - price;
+      action = "SELL"; levels = { entry: price, stop, target1: price - r1 * risk, target2: price - r2 * risk }; factors = Sf;
+    }
+    const fchips = (f) => f ? ["trend", "vwap", "adx", "mom", "trigger", "news"].map(k => (f[k] ? "✓" : "✗") + k[0].toUpperCase() + k.slice(1)).join(" ") : "";
+    const note = eventRisk ? ("⚠ news event — standing aside: " + news.caution)
+      : action === "BUY" ? ("BUY confluence — " + fchips(Lf))
+      : action === "SELL" ? ("SELL confluence — " + fchips(Sf))
+      : ("waiting — L" + longScore + "/S" + shortScore + " (need " + minScore + " + trend+ADX+trigger)");
+    return {
+      action, score: Math.max(longScore, shortScore), longScore, shortScore, factors,
+      news: nsent, caution: news.caution, eventRisk,
+      price: +price.toFixed(2), rsi: +r.toFixed(0), adx: +adx.toFixed(0), trend, levels, note
+    };
+  }
+
+  const api = { ema, rsi, atr, sessionVwap, adxDMI, supertrend, htfTrendOf, decide, swingDecide, vimDecide, signalDecide, ALGOS };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.Algos = api;
 })(typeof window !== "undefined" ? window : this);

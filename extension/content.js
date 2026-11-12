@@ -17,12 +17,13 @@
     phase: 0, entry: 0, stop: 0, t1: 0, t2: 0, t1done: false, eScore: 0,
     chart: null, series: null, lines: [], ro: null, panel: null, lastBetterAt: 0,
     shares: 0, score: 0, livePrice: 0, lastClose: 0,
-    priceSel: "", priceEl: null, entry0: 0, stop0: 0, blocked: false
+    priceSel: "", priceEl: null, entry0: 0, stop0: 0, blocked: false, news: {}
   };
 
   // ---- Persisted config + UI geometry (chrome.storage.local) ----
   const DEFAULTS = {
-    strategy: "vim", interval: 5, orMinutes: 20, minADX: 20, stopATR: 1.2, r1: 1.0, r2: 3.0,
+    strategy: "signals", minScore: 60,
+    interval: 5, orMinutes: 20, minADX: 20, stopATR: 1.5, r1: 1.5, r2: 3.0,
     equity: 100000, riskPct: 0.5, sound: true, alerts: true, maxTrades: 3, maxLossR: 2.0,
     ntfyTopic: "", tgToken: "", tgChat: ""
   };
@@ -86,10 +87,22 @@
       // signal), then clear the price cache so we don't read the old symbol's price.
       if (S.phase !== 0) closeTrade(floatingR(), "SWITCH");
       S.symbol = m[1];
-      S.priceEl = null; S.priceSel = ""; S.lastClose = 0; S.livePrice = 0;
+      S.priceEl = null; S.priceSel = ""; S.lastClose = 0; S.livePrice = 0; S.news = {};
       reset();
+      fetchNews();
     }
   });
+
+  // News verdict for the current symbol (from the local server; graceful if it's off).
+  function fetchNews() {
+    if (!S.symbol) return;
+    const sym = S.symbol;
+    try {
+      chrome.runtime.sendMessage({ __news: true, symbol: sym }, (r) => {
+        if (r && sym === S.symbol) S.news = r;   // ignore if user already switched again
+      });
+    } catch (e) {}
+  }
 
   function reset() {
     S.phase = 0; S.t1done = false; S.eScore = 0;
@@ -164,7 +177,7 @@
       '<div id="nlc-banner"></div>' +
       '<div id="nlc-state"><span id="nlc-action" class="WAIT">—</span><span id="nlc-score">—</span></div>' +
       '<div id="nlc-tfrow">TF: <select id="nlc-tf"><option value="3">3m</option><option value="5">5m</option><option value="15">15m</option></select>' +
-      ' · <select id="nlc-strat"><option value="vim">VIM</option><option value="scanner">Scanner</option></select> <span id="nlc-htf"></span></div>' +
+      ' · <select id="nlc-strat"><option value="signals">Signals</option><option value="vim">VIM</option><option value="scanner">Scanner</option></select> <span id="nlc-htf"></span></div>' +
       '<button id="nlc-alert">🔔 Enable alerts</button>' +
       '<div id="nlc-sub"></div>' +
       '<div id="nlc-better"></div>' +
@@ -179,8 +192,8 @@
           num("set-equity", "Capital ₹", CFG.equity, "1000") + num("set-risk", "Risk %", CFG.riskPct, "0.1") +
           num("set-or", "OR min", CFG.orMinutes, "5") + num("set-adx", "Min ADX", CFG.minADX, "1") +
           num("set-stop", "Stop ATR", CFG.stopATR, "0.1") + num("set-r1", "Target1 R", CFG.r1, "0.5") +
-          num("set-r2", "Target2 R", CFG.r2, "0.5") + num("set-maxt", "Max trades/day", CFG.maxTrades, "1") +
-          num("set-maxl", "Daily stop (−R)", CFG.maxLossR, "0.5") +
+          num("set-r2", "Target2 R", CFG.r2, "0.5") + num("set-score", "Min signal score", CFG.minScore, "5") +
+          num("set-maxt", "Max trades/day", CFG.maxTrades, "1") + num("set-maxl", "Daily stop (−R)", CFG.maxLossR, "0.5") +
         '</div>' +
         '<label class="nlc-chk"><input type="checkbox" id="set-sound"> Sound</label>' +
         '<label class="nlc-chk"><input type="checkbox" id="set-alerts"> Desktop alerts</label>' +
@@ -254,7 +267,7 @@
     if (!$("set-equity")) return;
     $("set-equity").value = CFG.equity; $("set-risk").value = CFG.riskPct; $("set-or").value = CFG.orMinutes;
     $("set-adx").value = CFG.minADX; $("set-stop").value = CFG.stopATR; $("set-r1").value = CFG.r1; $("set-r2").value = CFG.r2;
-    $("set-maxt").value = CFG.maxTrades; $("set-maxl").value = CFG.maxLossR;
+    $("set-score").value = CFG.minScore; $("set-maxt").value = CFG.maxTrades; $("set-maxl").value = CFG.maxLossR;
     $("set-sound").checked = CFG.sound; $("set-alerts").checked = CFG.alerts;
     $("set-ntfy").value = CFG.ntfyTopic; $("set-tgtoken").value = CFG.tgToken; $("set-tgchat").value = CFG.tgChat;
     if ($("nlc-tf")) $("nlc-tf").value = String(CFG.interval);
@@ -264,7 +277,7 @@
     const n = (id, d) => { const v = parseFloat($(id).value); return isNaN(v) ? d : v; };
     CFG.equity = n("set-equity", CFG.equity); CFG.riskPct = n("set-risk", CFG.riskPct); CFG.orMinutes = n("set-or", CFG.orMinutes);
     CFG.minADX = n("set-adx", CFG.minADX); CFG.stopATR = n("set-stop", CFG.stopATR); CFG.r1 = n("set-r1", CFG.r1); CFG.r2 = n("set-r2", CFG.r2);
-    CFG.maxTrades = n("set-maxt", CFG.maxTrades); CFG.maxLossR = n("set-maxl", CFG.maxLossR);
+    CFG.minScore = n("set-score", CFG.minScore); CFG.maxTrades = n("set-maxt", CFG.maxTrades); CFG.maxLossR = n("set-maxl", CFG.maxLossR);
     CFG.sound = $("set-sound").checked; CFG.alerts = $("set-alerts").checked;
     CFG.ntfyTopic = $("set-ntfy").value.trim(); CFG.tgToken = $("set-tgtoken").value.trim(); CFG.tgChat = $("set-tgchat").value.trim();
     saveCfg(); $("nlc-settings").classList.add("hidden"); refresh();
@@ -441,7 +454,8 @@
       : (d.levels ? [row("Entry", d.levels.entry, "en"), row("SL", d.levels.stop, "sl"), row("T1", d.levels.target1, "t1"), row("T2", d.levels.target2, "t2")].join("")
         : `<div class="nlc-lv" style="grid-column:1/-1"><div class="k">No trade</div><div class="v">₹${d.price != null ? d.price : "?"}</div></div>`);
     const sr = (d.nearSup != null || d.nearRes != null) ? ` · Sup <b>${d.nearSup != null ? "₹" + d.nearSup : "—"}</b> / Res <b>${d.nearRes != null ? "₹" + d.nearRes : "—"}</b>` : "";
-    $("nlc-ev").innerHTML = `Regime <b>${d.regime || d.trend || "?"}</b> · ADX <b>${d.adx != null ? d.adx : "?"}</b> · RSI ${d.rsi != null ? d.rsi : "?"} · size <b>${S.shares}</b> sh${sr}`;
+    const nx = d.news ? ` · News <b class="${d.news === "bullish" ? "pos" : d.news === "bearish" ? "neg" : ""}">${d.news}${d.eventRisk ? " ⚠" : ""}</b>` : "";
+    $("nlc-ev").innerHTML = `Trend <b>${d.regime || d.trend || "?"}</b> · ADX <b>${d.adx != null ? d.adx : "?"}</b> · RSI ${d.rsi != null ? d.rsi : "?"} · size <b>${S.shares}</b> sh${sr}${nx}`;
     ensureChart();
     if (S.series && candles.length) {
       S.series.setData(candles.map((c) => ({ time: c.t + IST, open: c.o, high: c.h, low: c.l, close: c.c })));
@@ -461,16 +475,20 @@
       S.lastClose = candles[candles.length - 1].c;
       // Higher-timeframe trend is only used by the Scanner strategy; VIM has its own regime.
       // Skip the extra Groww fetch in VIM mode (fewer calls, no rate-limit risk).
+      if (!S.news.sentiment && S.symbol) fetchNews();   // first run / page-load fetch
       let htfTrend = "FLAT";
       const hb = $("nlc-htf");
       if (CFG.strategy === "scanner") {
         const htfInt = S.interval < 15 ? 15 : S.interval * 4;
         try { htfTrend = Algos.htfTrendOf(await fetchCandles(htfInt)); } catch (e) {}
         if (hb) hb.textContent = "· " + htfInt + "m trend: " + htfTrend;
-      } else if (hb) { hb.textContent = ""; }
-      const d = CFG.strategy === "scanner"
-        ? Algos.swingDecide(candles, { minScore: 70, htfTrend })
-        : Algos.vimDecide(candles, { interval: S.interval, orMinutes: CFG.orMinutes, equity: CFG.equity, riskPct: CFG.riskPct, minADX: CFG.minADX, stopATR: CFG.stopATR, r1: CFG.r1, r2: CFG.r2 });
+      } else if (hb) { hb.textContent = S.news.sentiment ? ("· news: " + S.news.sentiment) : ""; }
+      let d;
+      if (CFG.strategy === "scanner") d = Algos.swingDecide(candles, { minScore: 70, htfTrend });
+      else if (CFG.strategy === "vim") d = Algos.vimDecide(candles, { interval: S.interval, orMinutes: CFG.orMinutes, equity: CFG.equity, riskPct: CFG.riskPct, minADX: CFG.minADX, stopATR: CFG.stopATR, r1: CFG.r1, r2: CFG.r2 });
+      else d = Algos.signalDecide(candles, { minScore: CFG.minScore, stopATR: CFG.stopATR, r1: CFG.r1, r2: CFG.r2, news: S.news });
+      // vol-targeted share size for whichever strategy
+      if (d.levels && !d.shares) { const risk = Math.abs(d.levels.entry - d.levels.stop) || 1; d.shares = Math.floor((CFG.riskPct / 100 * CFG.equity) / risk); }
       S.score = d.score; S.shares = d.shares || 0;
       machine(candles, d);
       render(candles, d);
