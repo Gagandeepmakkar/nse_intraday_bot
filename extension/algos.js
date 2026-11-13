@@ -404,7 +404,13 @@
     const r1 = opts.r1 || 1.5, r2 = opts.r2 || 3.0;
     const news = opts.news || {};
     const nsent = (news.sentiment || "neutral").toLowerCase();
-    const eventRisk = !!news.caution && String(news.caution).toLowerCase().replace(/[^a-z]/g, "") !== "none" && String(news.caution).toLowerCase().indexOf("unavailable") === -1;
+    const caut = String(news.caution || "").toLowerCase();
+    const hasCaut = !!caut && caut.replace(/[^a-z]/g, "") !== "none" && caut.indexOf("unavailable") === -1;
+    // Only HARD-block on genuine same-day event risk (earnings/results today, halt, circuit).
+    // General news (promoter sale, downgrade, broker note) is shown as a ⚠ warning but does
+    // NOT block the signal — otherwise almost every stock, which always has some news, is vetoed.
+    const eventRisk = /earning|result|halt|circuit|suspend|freeze|delist|lower circuit|upper circuit/.test(caut);
+    const newsFlag = hasCaut;   // for display only (⚠), not a blocker
     if (!candles || candles.length < 55) return { action: "WAIT", note: "loading candles…", score: 0, trend: "?" };
     const closes = candles.map(c => c.c);
     const i = closes.length - 1, price = closes[i];
@@ -448,13 +454,14 @@
       action = "SELL"; levels = { entry: price, stop, target1: price - r1 * risk, target2: price - r2 * risk }; factors = Sf;
     }
     const fchips = (f) => f ? ["trend", "vwap", "adx", "mom", "trigger", "news"].map(k => (f[k] ? "✓" : "✗") + k[0].toUpperCase() + k.slice(1)).join(" ") : "";
-    const note = eventRisk ? ("⚠ news event — standing aside: " + news.caution)
-      : action === "BUY" ? ("BUY confluence — " + fchips(Lf))
-      : action === "SELL" ? ("SELL confluence — " + fchips(Sf))
-      : ("waiting — L" + longScore + "/S" + shortScore + " (need " + minScore + " + trend+ADX+trigger)");
+    const warnTxt = newsFlag ? (" ⚠ " + news.caution) : "";
+    const note = eventRisk ? ("⚠ same-day event — standing aside: " + news.caution)
+      : action === "BUY" ? ("BUY confluence — " + fchips(Lf) + warnTxt)
+      : action === "SELL" ? ("SELL confluence — " + fchips(Sf) + warnTxt)
+      : ("waiting — L" + longScore + "/S" + shortScore + " (need " + minScore + " + trend+ADX+trigger)" + warnTxt);
     return {
       action, score: Math.max(longScore, shortScore), longScore, shortScore, factors,
-      news: nsent, caution: news.caution, eventRisk,
+      news: nsent, caution: news.caution, eventRisk, warn: newsFlag,
       price: +price.toFixed(2), rsi: +r.toFixed(0), adx: +adx.toFixed(0), trend, levels, note
     };
   }
