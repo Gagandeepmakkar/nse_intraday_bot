@@ -44,6 +44,7 @@
 .btc-f { display: flex; flex-direction: column; font-size: 10px; color: #8b95a3; margin-bottom: 9px; }
 .btc-f span { margin-bottom: 4px; }
 .btc-f input, .btc-f select { width: 100%; background: #141a22; color: #e8eaed; border: 1px solid #28313d; border-radius: 7px; padding: 7px 8px; font-size: 12px; }
+.btc-warn { font-size: 10px; line-height: 1.5; color: #ffcf8a; background: #2a1d0e; border: 1px solid #5a3a16; border-radius: 8px; padding: 8px 9px; margin-bottom: 9px; }
 .btc-chk { display: flex; align-items: center; gap: 7px; font-size: 11px; color: #cfd5dd; margin-bottom: 9px; }
 .btc-chk input { width: 14px; height: 14px; }
 .btc-save { width: 100%; background: #10331f; color: #5ee490; border: 1px solid #1c5235; border-radius: 9px; padding: 8px; font-weight: 700; font-size: 12px; cursor: pointer; }
