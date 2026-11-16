@@ -157,6 +157,12 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, json.dumps(latest_picks()).encode())
         elif parsed.path.startswith("/movers"):
             self._send(200, json.dumps(movers_list()).encode())
+        elif parsed.path.startswith("/watchlist"):
+            try:
+                with open("watchlist.json", encoding="utf-8") as f:
+                    self._send(200, f.read().encode())
+            except Exception:
+                self._send(200, b'{"picks":[]}')
         elif parsed.path.startswith("/news"):
             q = parse_qs(parsed.query)
             sym = (q.get("symbol") or [""])[0].strip().upper()

@@ -13,14 +13,14 @@
   const S = {
     url: "", auth: "", symbol: "", interval: 5,
     phase: 0, entry: 0, stop: 0, t1: 0, t2: 0, t1done: false, eScore: 0, entry0: 0, stop0: 0,
-    chart: null, series: null, lines: [], ro: null, panel: null,
-    price: 0, shares: 0, lastOk: 0, blocked: false, news: {}, lastBetterAt: 0, unsupported: false, movers: []
+    chart: null, series: null, lines: [], ro: null, panel: null, hh: 0, ll: 0, atr0: 0,
+    price: 0, shares: 0, lastOk: 0, blocked: false, news: {}, lastBetterAt: 0, unsupported: false, movers: [], watchlist: {}
   };
 
   // ---- Persisted config + UI geometry ----
   const DEFAULTS = {
     strategy: "signals", minScore: 60, interval: 5, orMinutes: 20, minADX: 20,
-    stopATR: 1.5, r1: 1.5, r2: 3.0, equity: 100000, riskPct: 0.5,
+    stopATR: 1.5, r1: 1.5, r2: 3.0, trailATR: 3.0, equity: 100000, riskPct: 0.5,
     sound: true, alerts: true, maxTrades: 3, maxLossR: 2.0,
     ntfyTopic: "", tgToken: "", tgChat: ""
   };
@@ -213,7 +213,7 @@
       setStatus("connecting Telegram…");
       try { chrome.runtime.sendMessage({ __tgConnect: true, token: CFG.tgToken }, (r) => { if (r && r.ok && r.chat) { CFG.tgChat = r.chat; $("set-tgchat").value = r.chat; saveCfg(); setStatus("Telegram ✓ connected"); } else setStatus("press Start in your bot, then retry"); }); } catch (e) {}
     };
-    syncSettingsUI(); S.chart = null; renderStats(); renderJournal(); renderMovers(); fetchMovers();
+    syncSettingsUI(); S.chart = null; renderStats(); renderJournal(); renderMovers(); fetchMovers(); fetchWatchlist();
   }
   function toggleSec(name) {
     const sec = $("sec-" + name), body = $("vim-" + name);
@@ -275,14 +275,33 @@
     return (j.candles || []).map((a) => ({ t: a[0], o: a[1], h: a[2], l: a[3], c: a[4], v: a[5] }));
   }
 
-  // Exits against the forming bar's high/low (catches any wick that touches a level).
+  // CONVEX exit (backtested: beats a fixed T2 cap): fixed stop → book 1/3 at T1 → then
+  // ATR-TRAIL the runner so winners run instead of being capped. R is from the real stop.
   function checkExits(hi, lo) {
+    const risk0 = Math.abs(S.entry0 - S.stop0) || 1;
+    const tATR = CFG.trailATR || 3.0;
     if (S.phase === 1) {
-      if (lo <= S.stop) { const R = S.t1done ? CFG.r1 / 3 : -1; notify((R > 0 ? "🟡 BE " : "⛔ STOP ") + S.symbol, R > 0 ? "Stopped at breakeven (+1/3 booked)" : "Exit — stop hit"); closeTrade(R, S.t1done ? "BE" : "SL"); }
-      else { if (!S.t1done && hi >= S.t1) { S.t1done = true; S.stop = S.entry; notify("🎯 +1R " + S.symbol, "Booked 1/3; stop → breakeven, rest runs to T2"); } if (hi >= S.t2) { notify("✅ +" + CFG.r2 + "R " + S.symbol, "T2 hit — exit the rest"); closeTrade(CFG.r1 / 3 + (2 / 3) * CFG.r2, "T2"); } }
+      if (lo <= S.stop) {
+        const remR = (S.stop - S.entry0) / risk0;
+        const R = S.t1done ? (CFG.r1 / 3 + (2 / 3) * remR) : -1;
+        const kind = !S.t1done ? "SL" : S.stop > S.entry0 + 1e-9 ? "TRAIL" : "BE";
+        notify((R > 0 ? (kind === "TRAIL" ? "🟢 TRAIL " : "🟡 BE ") : "⛔ STOP ") + S.symbol, R > 0 ? ("Runner trailed out at +" + R.toFixed(2) + "R") : "Exit — stop hit");
+        closeTrade(R, kind);
+      } else {
+        if (!S.t1done && hi >= S.t1) { S.t1done = true; S.stop = S.entry0; S.hh = hi; notify("🎯 +1R " + S.symbol, "Booked 1/3; now trailing the runner"); }
+        if (S.t1done) { S.hh = Math.max(S.hh, hi); const tr = S.hh - tATR * S.atr0; if (tr > S.stop) S.stop = tr; }
+      }
     } else if (S.phase === -1) {
-      if (hi >= S.stop) { const R = S.t1done ? CFG.r1 / 3 : -1; notify((R > 0 ? "🟡 BE " : "⛔ STOP ") + S.symbol, R > 0 ? "Stopped at breakeven (+1/3 booked)" : "Exit — stop hit"); closeTrade(R, S.t1done ? "BE" : "SL"); }
-      else { if (!S.t1done && lo <= S.t1) { S.t1done = true; S.stop = S.entry; notify("🎯 +1R " + S.symbol, "Booked 1/3; stop → breakeven, rest runs to T2"); } if (lo <= S.t2) { notify("✅ +" + CFG.r2 + "R " + S.symbol, "T2 hit — exit the rest"); closeTrade(CFG.r1 / 3 + (2 / 3) * CFG.r2, "T2"); } }
+      if (hi >= S.stop) {
+        const remR = (S.entry0 - S.stop) / risk0;
+        const R = S.t1done ? (CFG.r1 / 3 + (2 / 3) * remR) : -1;
+        const kind = !S.t1done ? "SL" : S.stop < S.entry0 - 1e-9 ? "TRAIL" : "BE";
+        notify((R > 0 ? (kind === "TRAIL" ? "🟢 TRAIL " : "🟡 BE ") : "⛔ STOP ") + S.symbol, R > 0 ? ("Runner trailed out at +" + R.toFixed(2) + "R") : "Exit — stop hit");
+        closeTrade(R, kind);
+      } else {
+        if (!S.t1done && lo <= S.t1) { S.t1done = true; S.stop = S.entry0; S.ll = lo; notify("🎯 +1R " + S.symbol, "Booked 1/3; now trailing the runner"); }
+        if (S.t1done) { S.ll = Math.min(S.ll, lo); const tr = S.ll + tATR * S.atr0; if (tr < S.stop) S.stop = tr; }
+      }
     }
   }
   function closeTrade(R, reason) {
@@ -300,6 +319,7 @@
         S.phase = d.action === "BUY" ? 1 : -1;
         S.entry = d.levels.entry; S.stop = d.levels.stop; S.t1 = d.levels.target1; S.t2 = d.levels.target2;
         S.entry0 = S.entry; S.stop0 = S.stop; S.t1done = false; S.eScore = d.score;
+        S.hh = forming.h; S.ll = forming.l; S.atr0 = (Math.abs(S.entry - S.stop) || 1) / (CFG.stopATR || 1.5);
         logEvent({ event: "signal", t: Date.now(), sym: S.symbol, side: d.action === "BUY" ? "LONG" : "SHORT", entry: +S.entry.toFixed(2), stop: +S.stop.toFixed(2), t1: +S.t1.toFixed(2), t2: +S.t2.toFixed(2), score: d.score, news: d.news, tf: S.interval, strat: CFG.strategy });
         notify((d.action === "BUY" ? "🟢 BUY " : "🔴 SELL ") + S.symbol, "@" + S.entry.toFixed(2) + "  SL " + S.stop.toFixed(2) + "  T1 " + S.t1.toFixed(2) + "  T2 " + S.t2.toFixed(2) + "  · " + S.shares + " sh");
       }
@@ -336,6 +356,9 @@
   }
   function fetchMovers() {
     try { chrome.runtime.sendMessage({ __movers: true }, (r) => { if (r && Array.isArray(r.picks)) { S.movers = r.picks; renderMovers(); } }); } catch (e) {}
+  }
+  function fetchWatchlist() {
+    try { chrome.runtime.sendMessage({ __watchlist: true }, (r) => { const m = {}; (r && r.picks || []).forEach(p => { if (p.bias && p.bias !== "flat") m[p.symbol] = p.bias; }); S.watchlist = m; }); } catch (e) {}
   }
   function renderMovers() {
     const el = $("vim-movers"); if (!el) return;
@@ -383,7 +406,8 @@
     lv.innerHTML = S.phase !== 0 ? [row("Entry", S.entry, "en"), row("SL", S.stop, "sl"), row("T1", S.t1, "t1"), row("T2", S.t2, "t2")].join("")
       : (d.levels ? [row("Entry", d.levels.entry, "en"), row("SL", d.levels.stop, "sl"), row("T1", d.levels.target1, "t1"), row("T2", d.levels.target2, "t2")].join("") : "");
     const nx = d.news ? ` · News <b class="${d.news === "bullish" ? "pos" : d.news === "bearish" ? "neg" : ""}">${d.news}${(d.warn || d.eventRisk) ? " ⚠" : ""}</b>` : "";
-    $("vim-meta").innerHTML = `Trend <b>${d.regime || d.trend || "?"}</b> · ADX <b>${d.adx != null ? d.adx : "?"}</b> · RSI <b>${d.rsi != null ? d.rsi : "?"}</b> · Size <b>${S.shares}</b> sh${nx}`;
+    const cx = d.catalystBias ? ` · 🎯 Catalyst <b class="${d.catalystBias === "UP" ? "pos" : "neg"}">${d.catalystBias}</b>` : "";
+    $("vim-meta").innerHTML = `Trend <b>${d.regime || d.trend || "?"}</b> · ADX <b>${d.adx != null ? d.adx : "?"}</b> · RSI <b>${d.rsi != null ? d.rsi : "?"}</b> · Size <b>${S.shares}</b> sh${nx}${cx}`;
     ensureChart();
     if (S.series && candles.length) { S.series.setData(candles.map((c) => ({ time: c.t + IST, open: c.o, high: c.h, low: c.l, close: c.c }))); drawLevels(); S.chart.timeScale().fitContent(); }
   }
@@ -409,16 +433,19 @@
       const forming = candles[candles.length - 1];
       const closed = candles.length > 1 ? candles.slice(0, -1) : candles;  // signal on CLOSED bars
       S.price = forming.c;
+      const bias = S.watchlist[S.symbol];   // today's catalyst direction for this stock, if any
+      const preferredSide = bias === "UP" ? "LONG" : bias === "DOWN" ? "SHORT" : null;
       let d;
       if (CFG.strategy === "scanner") {
         const htfInt = S.interval < 15 ? 15 : S.interval * 4;
         let htf = "FLAT"; try { htf = Algos.htfTrendOf(await fetchCandles(htfInt)); } catch (e) {}
-        d = Algos.swingDecide(closed, { minScore: 70, htfTrend: htf });
+        d = Algos.swingDecide(closed, { minScore: CFG.minScore, htfTrend: htf });
       } else if (CFG.strategy === "vim") {
         d = Algos.vimDecide(closed, { interval: S.interval, orMinutes: CFG.orMinutes, equity: CFG.equity, riskPct: CFG.riskPct, minADX: CFG.minADX, stopATR: CFG.stopATR, r1: CFG.r1, r2: CFG.r2 });
       } else {
-        d = Algos.signalDecide(closed, { minScore: CFG.minScore, stopATR: CFG.stopATR, r1: CFG.r1, r2: CFG.r2, news: S.news });
+        d = Algos.signalDecide(closed, { minScore: CFG.minScore, stopATR: CFG.stopATR, r1: CFG.r1, r2: CFG.r2, news: S.news, preferredSide });
       }
+      d.catalystBias = bias || null;
       if (d.levels) { const risk = Math.abs(d.levels.entry - d.levels.stop) || 1; S.shares = d.shares || Math.floor((CFG.riskPct / 100 * CFG.equity) / risk); }
       else S.shares = 0;
       machine(forming, d);
@@ -438,6 +465,7 @@
       setInterval(setDot, 2000);
       setInterval(syncJournal, 120000);
       setInterval(fetchMovers, 120000);
+      setInterval(fetchWatchlist, 300000);
       setTimeout(refresh, 1500);
     }));
   }

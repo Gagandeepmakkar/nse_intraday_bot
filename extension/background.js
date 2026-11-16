@@ -74,6 +74,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         } catch (e) { sendResponse({ ok: false }); }   // server not running — kept in chrome.storage, synced later
         return;
       }
+      if (msg.__watchlist) {
+        try { const r = await fetch("http://127.0.0.1:8787/watchlist", { cache: "no-store" }); sendResponse(r.ok ? await r.json() : { picks: [] }); }
+        catch (e) { sendResponse({ picks: [] }); }
+        return;
+      }
       if (msg.__movers) {
         try { const r = await fetch("http://127.0.0.1:8787/movers", { cache: "no-store" }); sendResponse(r.ok ? await r.json() : { picks: [] }); }
         catch (e) { sendResponse({ picks: [], error: String(e && e.message || e) }); }

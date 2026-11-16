@@ -456,15 +456,24 @@
       const stop = price + stopATRm * a, risk = stop - price;
       action = "SELL"; levels = { entry: price, stop, target1: price - r1 * risk, target2: price - r2 * risk }; factors = Sf;
     }
+    // Catalyst fusion: don't fight today's watchlist bias — veto a signal that opposes it.
+    // (The generic signal alone backtests negative; trading only in the catalyst direction
+    // is the one angle with potential edge.)
+    const pref = opts.preferredSide;   // "LONG" | "SHORT" | null
+    let vetoed = "";
+    if (pref === "SHORT" && action === "BUY") { vetoed = "catalyst bias DOWN"; action = "HOLD"; levels = null; factors = null; }
+    else if (pref === "LONG" && action === "SELL") { vetoed = "catalyst bias UP"; action = "HOLD"; levels = null; factors = null; }
+
     const fchips = (f) => f ? ["trend", "vwap", "adx", "mom", "trigger", "news"].map(k => (f[k] ? "✓" : "✗") + k[0].toUpperCase() + k.slice(1)).join(" ") : "";
     const warnTxt = newsFlag ? (" ⚠ " + news.caution) : "";
-    const note = eventRisk ? ("⚠ same-day event — standing aside: " + news.caution)
+    const note = vetoed ? ("↔ skipped — signal fights the " + vetoed)
+      : eventRisk ? ("⚠ same-day event — standing aside: " + news.caution)
       : action === "BUY" ? ("BUY confluence — " + fchips(Lf) + warnTxt)
       : action === "SELL" ? ("SELL confluence — " + fchips(Sf) + warnTxt)
       : ("waiting — L" + longScore + "/S" + shortScore + " (need " + minScore + " + trend + ADX)" + warnTxt);
     return {
       action, score: Math.max(longScore, shortScore), longScore, shortScore, factors,
-      news: nsent, caution: news.caution, eventRisk, warn: newsFlag,
+      news: nsent, caution: news.caution, eventRisk, warn: newsFlag, preferredSide: pref || null,
       price: +price.toFixed(2), rsi: +r.toFixed(0), adx: +adx.toFixed(0), trend, levels, note
     };
   }

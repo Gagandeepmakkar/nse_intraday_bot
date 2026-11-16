@@ -197,6 +197,15 @@ def main():
     state, picks = build(mode)
     text = report(mode, state, picks)
     print(text)
+    # Persist for the extension (catalyst fusion): symbol -> direction bias.
+    try:
+        simple = [{"symbol": p["symbol"],
+                   "bias": "UP" if "UP" in p["bias"] else "DOWN" if "DOWN" in p["bias"] else "flat",
+                   "catalyst": p.get("catalyst", "")} for p in picks]
+        json.dump({"mode": mode, "picks": simple, "asof": datetime.now(TZ).isoformat()},
+                  open("watchlist.json", "w", encoding="utf-8"))
+    except Exception:
+        pass
     push(text, picks)
 
 
