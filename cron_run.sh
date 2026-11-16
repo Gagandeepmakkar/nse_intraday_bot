@@ -16,11 +16,19 @@ LOG="cron.log"
     sleep 1
   fi
   python track.py || true          # grade yesterday's picks
-  # Pre-market intelligence briefing — only in the pre-open slot, if BRIEF_SYMBOLS set.
-  if [ "$HM" -lt 915 ]; then
+  # Pre-open WATCHLIST (morning, ~09:10): top 5 hot stocks for today with pre-open gaps.
+  if [ "$HM" -ge 908 ] && [ "$HM" -lt 911 ]; then
+    python watchlist.py --morning --ntfy --email || echo "watchlist morning failed"
+  fi
+  # Pre-market briefing (~09:12): deep read on your BRIEF_SYMBOLS.
+  if [ "$HM" -ge 911 ] && [ "$HM" -lt 915 ]; then
     python briefing.py --ntfy --email || echo "briefing.py exited non-zero"
   fi
   python bot.py || echo "bot.py exited non-zero"
+  # Evening WATCHLIST (~18:00): tomorrow's candidates from today's catalysts + movers.
+  if [ "$HM" -ge 1800 ] && [ "$HM" -lt 1830 ]; then
+    python watchlist.py --evening --ntfy --email || echo "watchlist evening failed"
+  fi
   # During market hours: scan the WHOLE market for the day's top movers and push the
   # shortlist to phone — so you know which stocks to open in the extension.
   if [ "$HM" -ge 930 ] && [ "$HM" -le 1515 ]; then

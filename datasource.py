@@ -492,6 +492,25 @@ class NSESource:
                 "text": str(r.get("attchmntText") or "").strip()})
         return out
 
+    def preopen_gaps(self, min_abs_pct=1.0):
+        """NSE pre-open session (09:00–09:08) gappers — the strongest same-day move signal,
+        known BEFORE the 09:15 open. Returns rows {symbol, last, prev, gap, buy_qty,
+        sell_qty, imbalance} sorted by |gap|. imbalance in [-1,1]: + = buy-heavy."""
+        self._load_preopen()
+        out = []
+        for sym, d in (self._preopen or {}).items():
+            last, prev = d.get("last", 0), d.get("prev", 0)
+            if prev <= 0 or last <= 0:
+                continue
+            gap = (last / prev - 1) * 100
+            if abs(gap) < min_abs_pct:
+                continue
+            bq, sq = d.get("buy_qty", 0), d.get("sell_qty", 0)
+            imb = (bq - sq) / (bq + sq) if (bq + sq) > 0 else 0.0
+            out.append({"symbol": sym, "last": last, "prev": prev, "gap": gap,
+                        "buy_qty": bq, "sell_qty": sq, "imbalance": imb})
+        return sorted(out, key=lambda x: abs(x["gap"]), reverse=True)
+
     def top_movers(self):
         """NSE's OWN live top gainers + losers (Capital Market). Returns
         {"gainers": [...], "losers": [...]}, each row:
