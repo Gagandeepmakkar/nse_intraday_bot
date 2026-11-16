@@ -64,6 +64,7 @@
       const states = await Promise.all(SYMS.map((s) => E.state(s, CFG)));
       const el = $("btc-rows");
       if (el) el.innerHTML = states.map((st, i) => rowHtml(st, SYMS[i])).join("");
+      if (mode && states[0] && states[0].source) mode.textContent = CFG.interval + (CFG.allowShort ? " L/S" : " L") + " · " + states[0].source;
     } catch (e) { const el = $("btc-rows"); if (el) el.innerHTML = '<div class="btc-det">Binance unreachable — retrying…</div>'; }
   }
 
