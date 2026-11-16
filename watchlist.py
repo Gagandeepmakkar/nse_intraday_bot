@@ -64,20 +64,30 @@ MATERIAL_KW = re.compile(
 
 
 def ai_catalyst(symbol, text):
-    """AI judges one filing: is it MATERIAL (likely to move the stock tomorrow) and which
-    way does it lean. Returns {material, direction, reason} or None. Reads text only —
-    no price prediction, no magnitude."""
+    """AI judges one filing as an event-driven analyst: materiality, an evidence-based IMPACT
+    TIER (1 high / 2 medium / 3 low), the event type, and direction. Returns dict or None.
+    Tiers come from research on which events actually move stocks (M&A, approvals, earnings
+    surprises & order wins move most; analyst notes move ±1-3%; block deals lean down).
+    Text-based classification (reading the filing) is the stronger form of PEAD. No magnitude."""
     key = os.getenv("GEMINI_API_KEY", "").strip()
     if not key or not text:
         return None
     model = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
     prompt = (
-        f"NSE stock {symbol} filed this with the exchange: \"{text[:600]}\". "
-        "As an intraday analyst, reply ONLY compact JSON: "
-        '{"material": true or false (is this likely to move the stock at the next open?), '
-        '"direction": "up" or "down" or "neutral", "reason": "max 8 words"}. '
-        "Routine filings (trading-window closure, newspaper publication, AGM notice, generic "
-        "Reg-30 disclosure, analyst-call schedule) are material=false. Do NOT predict magnitude.")
+        f"NSE stock {symbol} filed this with the exchange: \"{text[:900]}\". "
+        "As an event-driven analyst, reply ONLY compact JSON: "
+        '{"material": true|false, "tier": 1|2|3, "type": "<=4 words event type", '
+        '"direction": "up"|"down"|"neutral", "reason": "<=10 words"}. '
+        "TIER 1 (biggest moves): M&A / acquisition / merger / open offer, regulatory or drug "
+        "approval, large order or contract win, earnings surprise (beat or miss), fundraise / "
+        "QIP / preferential allotment, demerger, fraud / probe / insolvency. "
+        "TIER 2 (medium): buyback, dividend / bonus / split, product launch, capacity expansion, "
+        "management change, block / bulk deal, credit-rating change. "
+        "TIER 3 (small, <=3%): analyst note, routine update, press clipping. "
+        "Direction rules: earnings BEAT or big order = up; earnings MISS, block/bulk deal, "
+        "promoter sell, fraud/probe = down. Routine filings (trading-window, AGM notice, "
+        "newspaper publication, generic Reg-30 disclosure, analyst-call schedule) => material=false. "
+        "Do NOT predict magnitude or guarantee.")
     body = json.dumps({"contents": [{"parts": [{"text": prompt}]}]}).encode()
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
     try:
@@ -120,17 +130,20 @@ def build(mode):
         if not a or not a.get("material"):
             continue
         d = str(a.get("direction", "neutral")).lower()
+        tier = int(a["tier"]) if str(a.get("tier", "3")).isdigit() else 3
+        # rank: impact tier dominates (1>2>3), then a clear direction, then a confirming gap.
+        rank = (4 - tier) * 10 + (5 if d in ("up", "down") else 0) + (4 if sym in gaps else 0)
         scored.append({"symbol": sym, "catalyst": desc, "ai_reason": a.get("reason", ""),
-                       "direction": d, "gap": gaps.get(sym, {}).get("gap"),
-                       "imbalance": gaps.get(sym, {}).get("imbalance"),
-                       "rank": (2 if d in ("up", "down") else 0) + (2 if sym in gaps else 0)})
+                       "type": a.get("type", ""), "tier": tier, "direction": d,
+                       "gap": gaps.get(sym, {}).get("gap"), "imbalance": gaps.get(sym, {}).get("imbalance"),
+                       "rank": rank})
     # Morning: fold in strong gappers that had no filing (the gap IS the signal).
     for sym, g in gaps.items():
         if sym in cat:
             continue
-        scored.append({"symbol": sym, "catalyst": "pre-open gap", "ai_reason": "",
-                       "direction": "up" if g["gap"] > 0 else "down", "gap": g["gap"],
-                       "imbalance": g["imbalance"], "rank": 1 + min(abs(g["gap"]) / 3, 2)})
+        scored.append({"symbol": sym, "catalyst": "pre-open gap", "ai_reason": "", "type": "gap",
+                       "tier": 2, "direction": "up" if g["gap"] > 0 else "down", "gap": g["gap"],
+                       "imbalance": g["imbalance"], "rank": 20 + min(abs(g["gap"]), 6)})
 
     scored.sort(key=lambda x: x["rank"], reverse=True)
     picks = []
@@ -160,7 +173,9 @@ def report(mode, state, picks):
         if p.get("imbalance") is not None:
             bits.append("buy-heavy" if p["imbalance"] > 0.15 else "sell-heavy" if p["imbalance"] < -0.15 else "balanced")
         ctx = " (" + ", ".join(bits) + ")" if bits else ""
-        out.append(f"{i}. {p['symbol']}  bias {p['bias']}{ctx}")
+        tier = p.get("tier")
+        tg = f"  [T{tier}{'·' + p['type'] if p.get('type') else ''}]" if tier else ""
+        out.append(f"{i}. {p['symbol']}  bias {p['bias']}{ctx}{tg}")
         reason = (" — " + p["ai_reason"]) if p.get("ai_reason") else ""
         out.append(f"   catalyst: {p['catalyst']}{reason}")
         t = p.get("tech") or {}
