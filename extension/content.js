@@ -14,7 +14,7 @@
     url: "", auth: "", symbol: "", interval: 5,
     phase: 0, entry: 0, stop: 0, t1: 0, t2: 0, t1done: false, eScore: 0, entry0: 0, stop0: 0,
     chart: null, series: null, lines: [], ro: null, panel: null, hh: 0, ll: 0, atr0: 0,
-    price: 0, shares: 0, lastOk: 0, blocked: false, news: {}, lastBetterAt: 0, unsupported: false, movers: [], watchlist: {}, lastRawUrl: ""
+    price: 0, shares: 0, lastOk: 0, blocked: false, news: {}, lastBetterAt: 0, unsupported: false, movers: [], watchlist: {}, watchlistPicks: [], lastRawUrl: ""
   };
 
   // ---- Persisted config + UI geometry ----
@@ -162,7 +162,8 @@
         '<div id="vim-chart"></div>' +
         '<div id="vim-meta"></div>' +
         '<div id="vim-stats"></div>' +
-        '<div class="vim-sec open" id="sec-movers"><div class="vim-sec-h" data-sec="movers"><span>🔥 Market movers</span><span class="act"><button id="vim-mvref" class="vim-mini">↻</button><span class="vim-caret">▾</span></span></div><div id="vim-movers" class="vim-sec-b"></div></div>' +
+        '<div class="vim-sec open" id="sec-watch"><div class="vim-sec-h" data-sec="watch"><span>🎯 Watchlist (tomorrow / today)</span><span class="vim-caret">▾</span></div><div id="vim-watch" class="vim-sec-b"></div></div>' +
+        '<div class="vim-sec open" id="sec-movers"><div class="vim-sec-h" data-sec="movers"><span>🔥 Market movers (live)</span><span class="act"><button id="vim-mvref" class="vim-mini">↻</button><span class="vim-caret">▾</span></span></div><div id="vim-movers" class="vim-sec-b"></div></div>' +
         '<div class="vim-sec" id="sec-journal"><div class="vim-sec-h" data-sec="journal"><span>Journal</span><span class="act"><button id="vim-exp" class="vim-mini">Export</button><button id="vim-clr" class="vim-mini">Reset</button><span class="vim-caret">▾</span></span></div><div id="vim-journal" class="vim-sec-b"></div></div>' +
         '<div class="vim-sec" id="sec-settings"><div class="vim-sec-h" data-sec="settings"><span>Settings</span><span class="vim-caret">▾</span></div>' +
           '<div id="vim-settings" class="vim-sec-b hidden">' +
@@ -216,7 +217,7 @@
       setStatus("connecting Telegram…");
       try { chrome.runtime.sendMessage({ __tgConnect: true, token: CFG.tgToken }, (r) => { if (r && r.ok && r.chat) { CFG.tgChat = r.chat; $("set-tgchat").value = r.chat; saveCfg(); setStatus("Telegram ✓ connected"); } else setStatus("press Start in your bot, then retry"); }); } catch (e) {}
     };
-    syncSettingsUI(); S.chart = null; renderStats(); renderJournal(); renderMovers(); fetchMovers(); fetchWatchlist();
+    syncSettingsUI(); S.chart = null; renderStats(); renderJournal(); renderMovers(); renderWatchlist(); fetchMovers(); fetchWatchlist();
   }
   function toggleSec(name) {
     const sec = $("sec-" + name), body = $("vim-" + name);
@@ -361,7 +362,19 @@
     try { chrome.runtime.sendMessage({ __movers: true }, (r) => { if (r && Array.isArray(r.picks)) { S.movers = r.picks; renderMovers(); } }); } catch (e) {}
   }
   function fetchWatchlist() {
-    try { chrome.runtime.sendMessage({ __watchlist: true }, (r) => { const m = {}; (r && r.picks || []).forEach(p => { if (p.bias && p.bias !== "flat") m[p.symbol] = p.bias; }); S.watchlist = m; }); } catch (e) {}
+    try { chrome.runtime.sendMessage({ __watchlist: true }, (r) => { const picks = (r && r.picks) || []; const m = {}; picks.forEach(p => { if (p.bias && p.bias !== "flat") m[p.symbol] = p.bias; }); S.watchlist = m; S.watchlistPicks = picks; renderWatchlist(); }); } catch (e) {}
+  }
+  function renderWatchlist() {
+    const el = $("vim-watch"); if (!el) return;
+    const ps = S.watchlistPicks || [];
+    if (!ps.length) { el.innerHTML = '<div class="vim-je muted">No catalyst watchlist yet — builds at ~6pm &amp; ~9:10am.</div>'; return; }
+    el.innerHTML = ps.map((p) => {
+      const up = p.bias === "UP", dn = p.bias === "DOWN";
+      const cls = up ? "pos" : dn ? "neg" : "muted", arr = up ? "▲" : dn ? "▼" : "•";
+      const cat = p.catalyst ? ` · <i>${p.catalyst}</i>` : "";
+      return `<div class="vim-mv" data-sym="${p.symbol}" title="open on Groww"><span><b class="${cls}">${arr} ${p.symbol}</b>${cat}</span><b class="${cls}">${p.bias}</b></div>`;
+    }).join("");
+    el.querySelectorAll(".vim-mv").forEach((row) => row.onclick = () => window.open("https://groww.in/search?q=" + encodeURIComponent(row.getAttribute("data-sym")), "_blank"));
   }
   function renderMovers() {
     const el = $("vim-movers"); if (!el) return;
