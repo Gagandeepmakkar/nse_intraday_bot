@@ -4,8 +4,7 @@
   "use strict";
   if (window.__btcTrendLoaded) return;
   window.__btcTrendLoaded = true;
-  const E = self.BTCEngine;
-  const SYMS = ["BTC", "ETH"];
+  const SYMS = ["BTC", "ETH"];   // data is fetched by the background worker (handles CORS/geo)
   const DEFAULTS = { interval: "1d", period: 20, allowShort: true, ntfyTopic: "" };
   let CFG = Object.assign({}, DEFAULTS);
   const $ = (id) => document.getElementById(id);
@@ -57,15 +56,18 @@
     return `<div class="btc-row"><div class="btc-r1"><span class="btc-sym">${label}</span><span class="btc-badge ${cls}">${pos}</span><span class="btc-px">$${fmt(st.px)}</span>${pnl}</div><div class="btc-det">${detail}</div></div>`;
   }
 
-  async function refresh() {
+  function refresh() {
     ensurePanel();
     const mode = $("btc-mode"); if (mode) mode.textContent = CFG.interval + (CFG.allowShort ? " L/S" : " L");
     try {
-      const states = await Promise.all(SYMS.map((s) => E.state(s, CFG)));
-      const el = $("btc-rows");
-      if (el) el.innerHTML = states.map((st, i) => rowHtml(st, SYMS[i])).join("");
-      if (mode && states[0] && states[0].source) mode.textContent = CFG.interval + (CFG.allowShort ? " L/S" : " L") + " · " + states[0].source;
-    } catch (e) { const el = $("btc-rows"); if (el) el.innerHTML = '<div class="btc-det">Binance unreachable — retrying…</div>'; }
+      chrome.runtime.sendMessage({ type: "btcstates", cfg: CFG }, (states) => {
+        const el = $("btc-rows"); if (!el) return;
+        if (!states || !states.length) { el.innerHTML = '<div class="btc-det">No crypto source reachable — retrying…</div>'; return; }
+        el.innerHTML = states.map((st, i) => st && !st.err ? rowHtml(st, SYMS[i]) : `<div class="btc-det">${SYMS[i]}: ${(st && st.err) || "no data"}</div>`).join("");
+        const src = states.find((s) => s && s.source);
+        if (mode && src) mode.textContent = CFG.interval + (CFG.allowShort ? " L/S" : " L") + " · " + src.source;
+      });
+    } catch (e) {}
   }
 
   loadCfg(() => { build(); refresh(); setInterval(refresh, 30000); setInterval(ensurePanel, 4000); });

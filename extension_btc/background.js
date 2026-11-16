@@ -9,6 +9,21 @@ chrome.runtime.onInstalled.addListener(() => chrome.alarms.create("btc-check", {
 chrome.runtime.onStartup.addListener(() => chrome.alarms.create("btc-check", { periodInMinutes: 60 }));
 chrome.alarms.onAlarm.addListener((a) => { if (a.name === "btc-check") check(); });
 
+// The TradingView content script asks the background for state (Yahoo has no CORS header,
+// so it must be fetched here where host permissions bypass CORS).
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (!msg || msg.type !== "btcstates") return;
+  (async () => {
+    const out = [];
+    for (const k of SYMS) {
+      try { out.push(await self.BTCEngine.state(k, msg.cfg || {})); }
+      catch (e) { out.push({ sym: k, err: String(e && e.message || e) }); }
+    }
+    sendResponse(out);
+  })();
+  return true;  // async response
+});
+
 async function pushNtfy(topic, title, text) {
   if (!topic) return;
   try { await fetch("https://ntfy.sh/" + topic, { method: "POST", headers: { "Title": title, "Priority": "high", "Tags": "chart_with_upwards_trend" }, body: text }); } catch (e) {}

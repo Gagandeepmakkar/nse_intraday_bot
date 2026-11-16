@@ -16,8 +16,15 @@
   async function j(url) { const r = await fetch(url); if (!r.ok) throw new Error(r.status); return r.json(); }
   const asc = (a) => a.sort((x, y) => x.t - y.t);
 
-  // Each source: {name, candles(k,iv,limit)->[{t,o,h,l,c}] asc, price(k)->number}. India-friendly first.
+  // Each source: {name, candles(k,iv,limit)->[{t,o,h,l,c}] asc, price(k)->number}.
+  // Yahoo first — it's the one that works in India (same source the Python monitor uses).
+  // NOTE: Yahoo has no CORS header, so these must run in the BACKGROUND worker (host perms
+  // bypass CORS there); the content script/popup ask the background for state.
+  const Y = { BTC: "BTC-USD", ETH: "ETH-USD" }, YIV = { "1d": "1d", "4h": "1h", "1h": "1h" }, YRG = { "1d": "6mo", "4h": "1mo", "1h": "1mo" };
   const SRC = [
+    { name: "Yahoo",
+      candles: async (k, iv, n) => { const r = (await j(`https://query1.finance.yahoo.com/v8/finance/chart/${Y[k]}?interval=${YIV[iv]}&range=${YRG[iv]}`)).chart.result[0]; const ts = r.timestamp, q = r.indicators.quote[0]; const out = []; for (let i = 0; i < ts.length; i++) { if (q.close[i] == null) continue; out.push({ t: ts[i] * 1000, o: +q.open[i], h: +q.high[i], l: +q.low[i], c: +q.close[i] }); } return out.slice(-n); },
+      price: async (k) => +(await j(`https://query1.finance.yahoo.com/v8/finance/chart/${Y[k]}?interval=1d&range=5d`)).chart.result[0].meta.regularMarketPrice },
     { name: "CoinDCX",
       candles: async (k, iv, n) => asc((await j(`https://public.coindcx.com/market_data/candles?pair=${S[k].dcx}&interval=${IV[iv].dcx}&limit=${n}`)).map(c => ({ t: c.time, o: +c.open, h: +c.high, l: +c.low, c: +c.close }))),
       price: async (k) => { const d = await j(`https://public.coindcx.com/market_data/candles?pair=${S[k].dcx}&interval=1m&limit=1`); return +d[0].close; } },
