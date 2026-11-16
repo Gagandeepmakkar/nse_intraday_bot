@@ -100,8 +100,8 @@ def push(report, picks):
         try:
             head = "\n".join(l for l in report.splitlines() if l and not l.startswith("_") and not l.startswith("#"))
             urllib.request.urlopen(urllib.request.Request(
-                "https://ntfy.sh/" + os.getenv("NTFY_TOPIC").strip(), data=head.encode(),
-                headers={"Title": "🔥 NSE movers", "Priority": "default"}), timeout=10)
+                "https://ntfy.sh/" + os.getenv("NTFY_TOPIC").strip(), data=head.encode("utf-8"),
+                headers={"Title": "NSE movers", "Tags": "fire", "Priority": "default"}), timeout=10)
             print("[pushed]", file=sys.stderr)
         except Exception as e:
             print(f"[ntfy failed: {e}]", file=sys.stderr)
