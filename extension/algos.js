@@ -445,11 +445,14 @@
     const longScore = scoreOf(Lf), shortScore = scoreOf(Sf);
     const trend = Lf.trend ? "UP" : Sf.trend ? "DOWN" : "FLAT";
 
+    // Fire when the SCORE clears the bar and the core direction agrees (trend + ADX).
+    // The breakout/flip is a scoring factor, not a hard gate — requiring it on the exact
+    // bar suppressed almost everything. This fires reliably inside a confirmed trend.
     let action = "HOLD", levels = null, factors = null;
-    if (!eventRisk && longScore >= minScore && Lf.trend && Lf.adx && Lf.trigger) {
+    if (!eventRisk && longScore >= minScore && Lf.trend && Lf.adx) {
       const stop = price - stopATRm * a, risk = price - stop;
       action = "BUY"; levels = { entry: price, stop, target1: price + r1 * risk, target2: price + r2 * risk }; factors = Lf;
-    } else if (!eventRisk && shortScore >= minScore && Sf.trend && Sf.adx && Sf.trigger) {
+    } else if (!eventRisk && shortScore >= minScore && Sf.trend && Sf.adx) {
       const stop = price + stopATRm * a, risk = stop - price;
       action = "SELL"; levels = { entry: price, stop, target1: price - r1 * risk, target2: price - r2 * risk }; factors = Sf;
     }
@@ -458,7 +461,7 @@
     const note = eventRisk ? ("⚠ same-day event — standing aside: " + news.caution)
       : action === "BUY" ? ("BUY confluence — " + fchips(Lf) + warnTxt)
       : action === "SELL" ? ("SELL confluence — " + fchips(Sf) + warnTxt)
-      : ("waiting — L" + longScore + "/S" + shortScore + " (need " + minScore + " + trend+ADX+trigger)" + warnTxt);
+      : ("waiting — L" + longScore + "/S" + shortScore + " (need " + minScore + " + trend + ADX)" + warnTxt);
     return {
       action, score: Math.max(longScore, shortScore), longScore, shortScore, factors,
       news: nsent, caution: news.caution, eventRisk, warn: newsFlag,

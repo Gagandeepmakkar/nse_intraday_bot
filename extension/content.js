@@ -91,6 +91,20 @@
     try { if (CFG.ntfyTopic) chrome.runtime.sendMessage({ __ntfy: true, topic: CFG.ntfyTopic, title, text: body }); } catch (e) {}
   }
   function logEvent(ev) { try { chrome.runtime.sendMessage({ __log: true, events: [ev] }); } catch (e) {} }
+  // Live heartbeat to the server (vim_status.json) so the extension's real state can be
+  // diagnosed without the browser: version, symbol, strategy, action, scores, counts.
+  function heartbeat(d, nCandles) {
+    try {
+      const v = (chrome.runtime.getManifest && chrome.runtime.getManifest().version) || "?";
+      chrome.runtime.sendMessage({ __status: true, status: {
+        version: v, symbol: S.symbol, strategy: CFG.strategy, interval: S.interval, minScore: CFG.minScore,
+        action: d ? d.action : "?", score: d ? d.score : null, longScore: d ? d.longScore : null, shortScore: d ? d.shortScore : null,
+        phase: S.phase, price: S.price, candles: nCandles || 0, hasUrl: !!S.url,
+        trades: STATS.trades, journalLen: JOURNAL.length, news: (S.news && S.news.sentiment) || null,
+        caution: (S.news && S.news.caution) || null, note: d ? d.note : null, blocked: S.blocked
+      } });
+    } catch (e) {}
+  }
   function syncJournal() { if (JOURNAL.length) try { chrome.runtime.sendMessage({ __log: true, events: JOURNAL.map(j => Object.assign({ event: "close" }, j)) }); } catch (e) {} }
   function beep() {
     try {
@@ -376,7 +390,8 @@
       else S.shares = 0;
       machine(forming, d);
       render(candles, d);
-    } catch (err) { S.lastOk = 0; setDot(); }
+      heartbeat(d, closed.length);
+    } catch (err) { S.lastOk = 0; setDot(); heartbeat(null, 0); }
   }
 
   function init() {

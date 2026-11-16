@@ -20,6 +20,17 @@ JOURNAL = "journal.jsonl"   # append-only record of every signal/outcome the ext
 _NEWS_CACHE = {}            # { "SYMBOL|YYYY-MM-DD": {sentiment, caution, headlines} }
 
 
+def write_status(obj):
+    """Persist the extension's live heartbeat so we can diagnose it without the browser."""
+    try:
+        obj = dict(obj or {})
+        obj["server_time"] = datetime.now(timezone.utc).isoformat()
+        with open("vim_status.json", "w", encoding="utf-8") as f:
+            json.dump(obj, f, indent=2)
+    except Exception:
+        pass
+
+
 def news_verdict(symbol):
     """Per-symbol news read for the extension's confluence signal: Gemini (if a key is
     set) else keyword sentiment, plus an event-risk caution. Cached per symbol per day
@@ -104,12 +115,16 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         parsed = urlparse(self.path)
-        if not parsed.path.startswith("/log"):
+        if not (parsed.path.startswith("/log") or parsed.path.startswith("/status")):
             self._send(404, b'{"error":"not found"}')
             return
         try:
             n = int(self.headers.get("Content-Length", 0))
             payload = json.loads(self.rfile.read(n) or b"{}")
+            if parsed.path.startswith("/status"):
+                write_status(payload)
+                self._send(200, b'{"ok":true}')
+                return
             events = payload.get("events", payload)
             wrote = append_log(events)
             self._send(200, json.dumps({"ok": True, "wrote": wrote}).encode())
