@@ -16,7 +16,9 @@ the stop. No guarantees. AI only reads news text; every number here is determini
 Run: python watchlist.py --evening        (or --morning)
      python watchlist.py --morning --ntfy --email
 """
+import json
 import os
+import re
 import sys
 import urllib.request
 from datetime import datetime
@@ -52,63 +54,95 @@ def technicals(symbol):
             "hi20": float(df["high"].tail(20).max()), "lo20": float(df["low"].tail(20).min())}
 
 
+# Filings that actually move a stock vs routine noise (trading-window, AGM, newspaper ads).
+MATERIAL_KW = re.compile(
+    r"result|earning|order\b|contract|award|approv|acqui|merger|demerger|stake|fund.?rais|"
+    r"qip|preferential|buy.?back|fraud|probe|investigat|resign|default|bonus|split|delist|"
+    r"open offer|block deal|bulk deal|dividend|revenue|profit|guidance|downgrade|upgrade|"
+    r"rating|allot|capex|expansion|capacity|launch|partnership|joint venture|supply|tender|"
+    r"\bwon\b|\bbag|licen|patent|settlement|insolvency|nclt|penalt|clearance", re.I)
+
+
+def ai_catalyst(symbol, text):
+    """AI judges one filing: is it MATERIAL (likely to move the stock tomorrow) and which
+    way does it lean. Returns {material, direction, reason} or None. Reads text only —
+    no price prediction, no magnitude."""
+    key = os.getenv("GEMINI_API_KEY", "").strip()
+    if not key or not text:
+        return None
+    model = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+    prompt = (
+        f"NSE stock {symbol} filed this with the exchange: \"{text[:600]}\". "
+        "As an intraday analyst, reply ONLY compact JSON: "
+        '{"material": true or false (is this likely to move the stock at the next open?), '
+        '"direction": "up" or "down" or "neutral", "reason": "max 8 words"}. '
+        "Routine filings (trading-window closure, newspaper publication, AGM notice, generic "
+        "Reg-30 disclosure, analyst-call schedule) are material=false. Do NOT predict magnitude.")
+    body = json.dumps({"contents": [{"parts": [{"text": prompt}]}]}).encode()
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
+    try:
+        req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            txt = json.load(r)["candidates"][0]["content"]["parts"][0]["text"]
+        return json.loads(txt.replace("```json", "").replace("```", "").strip())
+    except Exception:
+        return None
+
+
 def build(mode):
     src = NSESource()
     state = src.market_state()
-    cands = {}
 
+    # CATALYST-FIRST: every stock with a filing today whose text looks material.
+    cat = {}
     try:
         for sym, rows in (src.announcements(days=1) or {}).items():
-            if rows:
-                cands.setdefault(sym, {})["catalyst"] = (rows[0].get("desc") or "filing")[:48]
+            blob = " ".join((r.get("desc", "") + " " + r.get("text", "")) for r in rows)
+            if MATERIAL_KW.search(blob):
+                cat[sym] = (rows[0].get("desc") or "filing")[:60], blob
     except Exception:
         pass
-    try:
-        mv = src.top_movers()
-        for key in ("gainers", "losers"):
-            for r in mv.get(key, [])[:25]:
-                if r["ltp"] < MIN_PRICE or abs(r["pChange"]) > 20:
-                    continue
-                cands.setdefault(r["symbol"], {}).update(pChange=r["pChange"], ltp=r["ltp"])
-    except Exception:
-        pass
+
+    # Morning: pre-open gappers are a real same-day catalyst too (independent of filings).
+    gaps = {}
     if mode == "morning":
         try:
-            for g in src.preopen_gaps(1.0)[:40]:
-                cands.setdefault(g["symbol"], {}).update(gap=g["gap"], imbalance=g["imbalance"])
+            for g in src.preopen_gaps(1.5)[:40]:
+                if g["last"] >= MIN_PRICE:
+                    gaps[g["symbol"]] = g
         except Exception:
             pass
 
-    # rank candidates by a move-likelihood score (gap weighs most, then catalyst, momentum)
-    def score(f):
-        return abs(f.get("gap", 0)) * 1.6 + (6 if f.get("catalyst") else 0) + abs(f.get("pChange", 0)) * 0.5
-    ranked = sorted(cands.items(), key=lambda kv: score(kv[1]), reverse=True)[:10]
+    # AI-classify each catalyst filing; keep only the ones AI calls material + directional.
+    scored = []
+    for sym, (desc, blob) in list(cat.items())[:30]:   # cap AI calls
+        a = ai_catalyst(sym, blob)
+        if not a or not a.get("material"):
+            continue
+        d = str(a.get("direction", "neutral")).lower()
+        scored.append({"symbol": sym, "catalyst": desc, "ai_reason": a.get("reason", ""),
+                       "direction": d, "gap": gaps.get(sym, {}).get("gap"),
+                       "imbalance": gaps.get(sym, {}).get("imbalance"),
+                       "rank": (2 if d in ("up", "down") else 0) + (2 if sym in gaps else 0)})
+    # Morning: fold in strong gappers that had no filing (the gap IS the signal).
+    for sym, g in gaps.items():
+        if sym in cat:
+            continue
+        scored.append({"symbol": sym, "catalyst": "pre-open gap", "ai_reason": "",
+                       "direction": "up" if g["gap"] > 0 else "down", "gap": g["gap"],
+                       "imbalance": g["imbalance"], "rank": 1 + min(abs(g["gap"]) / 3, 2)})
 
+    scored.sort(key=lambda x: x["rank"], reverse=True)
     picks = []
-    for sym, f in ranked:
-        heads = []
-        try:
-            heads = briefing.fetch_news(sym)
-        except Exception:
-            pass
-        ai = None
-        try:
-            ai = briefing.ai_news(sym, heads)
-        except Exception:
-            pass
-        sent = ai[0] if ai else (briefing.sentiment(heads)[0].split()[0] if heads else "neutral")
-        caution = ai[1] if ai else ""
-        # direction BIAS = sum of real directional signals (not a prediction)
-        b = 0
-        b += 2 if f.get("gap", 0) > 0 else -2 if f.get("gap", 0) < 0 else 0
-        b += 1 if f.get("imbalance", 0) > 0.15 else -1 if f.get("imbalance", 0) < -0.15 else 0
-        b += 1 if f.get("pChange", 0) > 0 else -1 if f.get("pChange", 0) < 0 else 0
-        b += 1 if sent == "bullish" else -1 if sent == "bearish" else 0
-        bias = "UP ▲" if b > 0 else "DOWN ▼" if b < 0 else "— flat"
-        tech = technicals(sym)
-        picks.append({"symbol": sym, "bias": bias, "catalyst": f.get("catalyst", ""),
-                      "sent": sent, "caution": caution, "gap": f.get("gap"), "pChange": f.get("pChange"),
-                      "imbalance": f.get("imbalance"), "tech": tech})
+    for s in scored[:6]:
+        sym = s["symbol"]
+        # final direction bias = AI catalyst lean + pre-open gap + imbalance
+        b = {"up": 1, "down": -1}.get(s["direction"], 0)
+        b += 2 if (s.get("gap") or 0) > 0 else -2 if (s.get("gap") or 0) < 0 else 0
+        b += 1 if (s.get("imbalance") or 0) > 0.15 else -1 if (s.get("imbalance") or 0) < -0.15 else 0
+        s["bias"] = "UP ▲" if b > 0 else "DOWN ▼" if b < 0 else "— unclear"
+        s["tech"] = technicals(sym)
+        picks.append(s)
         if len(picks) >= 5:
             break
     return state, picks
@@ -122,16 +156,14 @@ def report(mode, state, picks):
     for i, p in enumerate(picks, 1):
         bits = []
         if p.get("gap") is not None:
-            bits.append(f"gap {p['gap']:+.1f}%")
+            bits.append(f"pre-open {p['gap']:+.1f}%")
         if p.get("imbalance") is not None:
             bits.append("buy-heavy" if p["imbalance"] > 0.15 else "sell-heavy" if p["imbalance"] < -0.15 else "balanced")
-        if p.get("pChange") is not None:
-            bits.append(f"yest {p['pChange']:+.1f}%")
         ctx = " (" + ", ".join(bits) + ")" if bits else ""
         out.append(f"{i}. {p['symbol']}  bias {p['bias']}{ctx}")
-        if p["catalyst"]:
-            out.append(f"   catalyst: {p['catalyst']} · news {p['sent']}" + (f" ⚠ {p['caution']}" if p["caution"] and str(p["caution"]).lower() not in ("none", "") else ""))
-        t = p["tech"]
+        reason = (" — " + p["ai_reason"]) if p.get("ai_reason") else ""
+        out.append(f"   catalyst: {p['catalyst']}{reason}")
+        t = p.get("tech") or {}
         if t:
             out.append(f"   levels: pivot ₹{t['pivot']:,.1f} · sup ₹{t['sup']:,.1f} / res ₹{t['res']:,.1f} · day range ±₹{t['atr']:,.1f} · trend {t['trend']}")
         out.append("")
