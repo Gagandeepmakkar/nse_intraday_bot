@@ -51,26 +51,28 @@
 
   function atr(c, i, p = 14) { let s = 0, n = 0; for (let k = Math.max(1, i - p + 1); k <= i; k++) { s += Math.max(c[k].h - c[k].l, Math.abs(c[k].h - c[k - 1].c), Math.abs(c[k].l - c[k - 1].c)); n++; } return n ? s / n : 0; }
   function donchian(bars, period, allowShort) {
-    let pos = 0, entry = 0, stop = 0, entryI = 0;
+    let pos = 0, entry = 0, stop = 0, entryI = 0, risk0 = 0;
     for (let i = period + 1; i < bars.length; i++) {
       const c = bars[i].c, a = atr(bars, i);
       const hi = Math.max.apply(null, bars.slice(i - period, i).map(d => d.h));
       const lo = Math.min.apply(null, bars.slice(i - period, i).map(d => d.l));
       if (pos === 0) {
-        if (c > hi) { pos = 1; entry = c; entryI = i; stop = Math.max.apply(null, bars.slice(i - period, i + 1).map(d => d.h)) - 3 * a; }
-        else if (allowShort && c < lo) { pos = -1; entry = c; entryI = i; stop = Math.min.apply(null, bars.slice(i - period, i + 1).map(d => d.l)) + 3 * a; }
+        if (c > hi) { pos = 1; entry = c; entryI = i; stop = Math.max.apply(null, bars.slice(i - period, i + 1).map(d => d.h)) - 3 * a; risk0 = entry - stop; }
+        else if (allowShort && c < lo) { pos = -1; entry = c; entryI = i; stop = Math.min.apply(null, bars.slice(i - period, i + 1).map(d => d.l)) + 3 * a; risk0 = stop - entry; }
       } else if (pos === 1) { stop = Math.max(stop, Math.max.apply(null, bars.slice(i - period, i + 1).map(d => d.h)) - 3 * a); if (c < stop) pos = 0; }
       else { stop = Math.min(stop, Math.min.apply(null, bars.slice(i - period, i + 1).map(d => d.l)) + 3 * a); if (c > stop) pos = 0; }
     }
     const L = bars.length - 1;
-    return { pos, entry, stop, entryBarsAgo: pos ? L - entryI : 0, upBreak: Math.max.apply(null, bars.slice(L - period + 1, L + 1).map(d => d.h)), dnBreak: Math.min.apply(null, bars.slice(L - period + 1, L + 1).map(d => d.l)) };
+    return { pos, entry, stop, risk0: Math.abs(risk0), entryBarsAgo: pos ? L - entryI : 0, upBreak: Math.max.apply(null, bars.slice(L - period + 1, L + 1).map(d => d.h)), dnBreak: Math.min.apply(null, bars.slice(L - period + 1, L + 1).map(d => d.l)) };
   }
   async function state(k, cfg) {
     const interval = cfg.interval || "1d", period = cfg.period || 20;
     const { candles, px, source } = await fetchData(k, interval, period + 45);
     const d = donchian(candles.slice(0, -1), period, cfg.allowShort !== false);
     const pnl = d.pos ? d.pos * (px / d.entry - 1) * 100 : 0;
-    return { sym: k, interval, px, pnl, source, ...d };
+    const t1 = d.pos ? d.entry + d.pos * 2 * d.risk0 : null;
+    const t2 = d.pos ? d.entry + d.pos * 3 * d.risk0 : null;
+    return { sym: k, interval, px, pnl, source, t1, t2, ...d };
   }
   root.BTCEngine = { fetchData, donchian, state };
 })(typeof self !== "undefined" ? self : this);
