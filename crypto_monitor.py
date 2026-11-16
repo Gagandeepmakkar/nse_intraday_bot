@@ -49,16 +49,16 @@ def atr(b, i, p=14):
 
 
 def donchian(bars, period, allow_short, mult=3.0):
-    pos, entry, stop, risk0 = 0, 0.0, 0.0, 0.0
+    pos, entry, stop, risk0, entry_i = 0, 0.0, 0.0, 0.0, 0
     for i in range(period + 1, len(bars)):
         c, a = bars[i]["c"], atr(bars, i)
         hi = max(x["h"] for x in bars[i - period:i])
         lo = min(x["l"] for x in bars[i - period:i])
         if pos == 0:
             if c > hi:
-                pos, entry = 1, c; stop = max(x["h"] for x in bars[i - period:i + 1]) - mult * a; risk0 = entry - stop
+                pos, entry, entry_i = 1, c, i; stop = max(x["h"] for x in bars[i - period:i + 1]) - mult * a; risk0 = entry - stop
             elif allow_short and c < lo:
-                pos, entry = -1, c; stop = min(x["l"] for x in bars[i - period:i + 1]) + mult * a; risk0 = stop - entry
+                pos, entry, entry_i = -1, c, i; stop = min(x["l"] for x in bars[i - period:i + 1]) + mult * a; risk0 = stop - entry
         elif pos == 1:
             stop = max(stop, max(x["h"] for x in bars[i - period:i + 1]) - mult * a)
             if c < stop:
@@ -70,7 +70,7 @@ def donchian(bars, period, allow_short, mult=3.0):
     L = len(bars) - 1
     up = max(x["h"] for x in bars[L - period + 1:L + 1])
     dn = min(x["l"] for x in bars[L - period + 1:L + 1])
-    return pos, entry, stop, up, dn, abs(risk0)
+    return pos, entry, stop, up, dn, abs(risk0), (L - entry_i if pos else 0)
 
 
 def arg(flag, default):
@@ -92,14 +92,16 @@ def main():
         if len(bars) < period + 5:
             lines.append(f"{label}: no data"); continue
         closed = bars[:-1]
-        pos, entry, stop, up, dn, risk0 = donchian(closed, period, allow_short)
+        pos, entry, stop, up, dn, risk0, bars_ago = donchian(closed, period, allow_short)
         px = bars[-1]["c"]
         name = "LONG" if pos == 1 else "SHORT" if pos == -1 else "FLAT"
         pnl = pos * (px / entry - 1) * 100 if pos else 0
-        if pos:
+        if pos and bars_ago <= 5:
             t1 = entry + pos * 2 * risk0
             t2 = entry + pos * 3 * risk0
-            lines.append(f"{label} {name}  ${px:,.0f}  ({pnl:+.1f}%)  entry ${entry:,.0f} · stop ${stop:,.0f} · T1 ${t1:,.0f} · T2 ${t2:,.0f}")
+            lines.append(f"{label} {name}  ${px:,.0f}  ({pnl:+.1f}%)  fresh @ ${entry:,.0f} · stop ${stop:,.0f} · T1 ${t1:,.0f} · T2 ${t2:,.0f}")
+        elif pos:
+            lines.append(f"{label} {name}  ${px:,.0f}  ({pnl:+.1f}%)  @ ${entry:,.0f} ({bars_ago} bars ago) · trailing stop ${stop:,.0f} — exit if crossed")
         else:
             watch = f"long>${up:,.0f}" + (f" / short<${dn:,.0f}" if allow_short else "")
             lines.append(f"{label} FLAT  ${px:,.0f}  waiting — {watch}")

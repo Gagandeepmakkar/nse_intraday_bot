@@ -51,8 +51,9 @@
     const cls = st.pos === 1 ? "long" : st.pos === -1 ? "short" : "flat";
     const pnl = st.pos ? `<b class="${st.pnl >= 0 ? "pos" : "neg"}">${st.pnl >= 0 ? "+" : ""}${st.pnl.toFixed(1)}%</b>` : "";
     let detail;
-    if (st.pos) detail = `entry $${fmt(st.entry)} · stop $${fmt(st.stop)}${st.t1 ? ` · T1 $${fmt(st.t1)} · T2 $${fmt(st.t2)}` : ""}`;
-    else detail = `waiting — LONG if close &gt; $${fmt(st.upBreak)}${CFG.allowShort ? ` · SHORT if &lt; $${fmt(st.dnBreak)}` : ""}`;
+    if (!st.pos) detail = `waiting — LONG if close &gt; $${fmt(st.upBreak)}${CFG.allowShort ? ` · SHORT if &lt; $${fmt(st.dnBreak)}` : ""}`;
+    else if (st.entryBarsAgo <= 5) detail = `fresh ${pos} @ $${fmt(st.entry)} · stop $${fmt(st.stop)} · T1 $${fmt(st.t1)} · T2 $${fmt(st.t2)}`;
+    else detail = `${pos} @ $${fmt(st.entry)} (${st.entryBarsAgo} bars ago) · trailing stop $${fmt(st.stop)} — exit if price crosses it`;
     return `<div class="btc-row"><div class="btc-r1"><span class="btc-sym">${label}</span><span class="btc-badge ${cls}">${pos}</span><span class="btc-px">$${fmt(st.px)}</span>${pnl}</div><div class="btc-det">${detail}</div></div>`;
   }
 

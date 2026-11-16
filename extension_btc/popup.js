@@ -13,9 +13,11 @@ function render(states) {
     const pos = st.pos === 1 ? "LONG" : st.pos === -1 ? "SHORT" : "FLAT";
     const cls = st.pos === 1 ? "long" : st.pos === -1 ? "short" : "flat";
     const pnl = st.pos ? `<b class="${st.pnl >= 0 ? "pos" : "neg"}">${st.pnl >= 0 ? "+" : ""}${st.pnl.toFixed(1)}%</b>` : "";
-    const detail = st.pos
-      ? `entry $${fmt(st.entry)} · stop $${fmt(st.stop)}${st.t1 ? ` · T1 $${fmt(st.t1)} · T2 $${fmt(st.t2)}` : ""}`
-      : `waiting — LONG if close &gt; $${fmt(st.upBreak)}${CFG.allowShort ? ` · SHORT if &lt; $${fmt(st.dnBreak)}` : ""}`;
+    const detail = !st.pos
+      ? `waiting — LONG if close &gt; $${fmt(st.upBreak)}${CFG.allowShort ? ` · SHORT if &lt; $${fmt(st.dnBreak)}` : ""}`
+      : st.entryBarsAgo <= 5
+        ? `fresh ${pos} @ $${fmt(st.entry)} · stop $${fmt(st.stop)} · T1 $${fmt(st.t1)} · T2 $${fmt(st.t2)}`
+        : `${pos} @ $${fmt(st.entry)} (${st.entryBarsAgo} bars ago) · trailing stop $${fmt(st.stop)} — exit if price crosses it`;
     return `<div class="row"><div class="r1"><span class="sym">${label}</span><span class="badge ${cls}">${pos}</span><span class="px">$${fmt(st.px)}</span>${pnl}</div><div class="det">${detail}</div></div>`;
   }).join("");
 }
