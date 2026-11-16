@@ -86,6 +86,14 @@
   }
 
   function reset() { S.phase = 0; S.t1done = false; S.eScore = 0; S.entry = S.stop = S.t1 = S.t2 = S.entry0 = S.stop0 = 0; }
+  // NSE cash market hours: Mon–Fri, 09:15–15:30 IST. No signals outside this window.
+  function marketOpen() {
+    const ist = new Date(Date.now() + 330 * 60000);  // shift to IST wall-clock via UTC fields
+    const day = ist.getUTCDay();
+    if (day === 0 || day === 6) return false;
+    const mins = ist.getUTCHours() * 60 + ist.getUTCMinutes();
+    return mins >= 555 && mins <= 930;
+  }
   function floatingR() {
     if (S.phase === 0 || !S.entry0) return 0;
     const px = S.price || S.entry0, risk = Math.abs(S.entry0 - S.stop0) || 1;
@@ -403,15 +411,20 @@
     dot.className = !S.lastOk ? "off" : age < 15000 ? "" : age < 60000 ? "stale" : "off";
     dot.title = !S.lastOk ? "no data" : age < 15000 ? "live" : "stale (" + Math.round(age / 1000) + "s)";
   }
-  function render(candles, d) {
+  function render(candles, d, open) {
     $("vim-sym").textContent = S.symbol || "—";
     $("vim-price").textContent = S.price ? "₹" + S.price.toFixed(2) : "₹—";
     setDot();
     const bn = $("vim-banner");
-    if (S.blocked && S.phase === 0 && bn) { bn.textContent = "🛑 Daily limit — no new trades (" + STATS.trades + "/" + CFG.maxTrades + ", " + STATS.cumR.toFixed(1) + "R)"; bn.className = "warn show"; }
+    if (open === false && bn) { bn.textContent = "🌙 Market closed — signals resume 9:15 AM IST. (chart below is last session, not live)"; bn.className = "info show"; }
+    else if (S.blocked && S.phase === 0 && bn) { bn.textContent = "🛑 Daily limit — no new trades (" + STATS.trades + "/" + CFG.maxTrades + ", " + STATS.cumR.toFixed(1) + "R)"; bn.className = "warn show"; }
+    else if (bn) bn.className = "";
     const act = $("vim-action");
-    act.textContent = S.phase === 1 ? "HOLDING LONG" : S.phase === -1 ? "HOLDING SHORT" : d.action === "BUY" ? "BUY NOW" : d.action === "SELL" ? "SELL NOW" : d.action === "HOLD" ? "HOLD" : "WAIT";
-    act.className = S.phase === 1 ? "LONG" : S.phase === -1 ? "SHORT" : (d.action === "BUY" ? "BUY" : d.action === "SELL" ? "SELL" : "WAIT");
+    if (open === false && S.phase === 0) { act.textContent = "MARKET CLOSED"; act.className = "WAIT"; }
+    else {
+      act.textContent = S.phase === 1 ? "HOLDING LONG" : S.phase === -1 ? "HOLDING SHORT" : d.action === "BUY" ? "BUY NOW" : d.action === "SELL" ? "SELL NOW" : d.action === "HOLD" ? "HOLD" : "WAIT";
+      act.className = S.phase === 1 ? "LONG" : S.phase === -1 ? "SHORT" : (d.action === "BUY" ? "BUY" : d.action === "SELL" ? "SELL" : "WAIT");
+    }
     const sv = d.score != null ? d.score : 0;
     $("vim-scoretext").textContent = sv;
     const fill = $("vim-scorefill"); fill.style.width = Math.min(100, sv) + "%"; fill.className = sv >= (CFG.minScore || 60) ? "hi" : sv >= 40 ? "mid" : "";
@@ -464,8 +477,10 @@
       d.catalystBias = bias || null;
       if (d.levels) { const risk = Math.abs(d.levels.entry - d.levels.stop) || 1; S.shares = d.shares || Math.floor((CFG.riskPct / 100 * CFG.equity) / risk); }
       else S.shares = 0;
-      machine(forming, d);
-      render(candles, d);
+      const open = marketOpen();
+      if (open) machine(forming, d);           // only trade during market hours
+      else if (S.phase !== 0) closeTrade(floatingR(), "EOD");  // square off at close
+      render(candles, d, open);
       heartbeat(d, closed.length);
     } catch (err) { S.lastOk = 0; setDot(); heartbeat(null, 0); }
   }
