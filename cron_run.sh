@@ -16,6 +16,8 @@ LOG="cron.log"
     sleep 1
   fi
   python track.py || true          # grade yesterday's picks
+  # Crypto is 24/7 — check BTC/ETH Donchian trend every slot; alert only on trend change.
+  python crypto_monitor.py --ntfy --email || echo "crypto_monitor exited non-zero"
   # Pre-open WATCHLIST (morning, ~09:10): top 5 hot stocks for today with pre-open gaps.
   if [ "$HM" -ge 908 ] && [ "$HM" -lt 911 ]; then
     python watchlist.py --morning --ntfy --email || echo "watchlist morning failed"
