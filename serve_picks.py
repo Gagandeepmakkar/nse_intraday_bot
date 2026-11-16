@@ -20,6 +20,26 @@ JOURNAL = "journal.jsonl"   # append-only record of every signal/outcome the ext
 _NEWS_CACHE = {}            # { "SYMBOL|YYYY-MM-DD": {sentiment, caution, headlines} }
 
 
+import time
+_MOVERS_CACHE = {"t": 0.0, "data": None}
+
+
+def movers_list():
+    """Live top movers for the extension, cached ~3 min so we don't hammer NSE."""
+    now = time.time()
+    if _MOVERS_CACHE["data"] is not None and now - _MOVERS_CACHE["t"] < 180:
+        return _MOVERS_CACHE["data"]
+    try:
+        import movers
+        state, picks = movers.scan()
+        data = {"state": state, "picks": picks}
+    except Exception as e:
+        data = {"state": "", "picks": [], "error": str(e)}
+    _MOVERS_CACHE["t"] = now
+    _MOVERS_CACHE["data"] = data
+    return data
+
+
 def write_status(obj):
     """Persist the extension's live heartbeat so we can diagnose it without the browser."""
     try:
@@ -135,6 +155,8 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         if parsed.path.startswith("/picks"):
             self._send(200, json.dumps(latest_picks()).encode())
+        elif parsed.path.startswith("/movers"):
+            self._send(200, json.dumps(movers_list()).encode())
         elif parsed.path.startswith("/news"):
             q = parse_qs(parsed.query)
             sym = (q.get("symbol") or [""])[0].strip().upper()

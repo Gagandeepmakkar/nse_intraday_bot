@@ -14,7 +14,7 @@
     url: "", auth: "", symbol: "", interval: 5,
     phase: 0, entry: 0, stop: 0, t1: 0, t2: 0, t1done: false, eScore: 0, entry0: 0, stop0: 0,
     chart: null, series: null, lines: [], ro: null, panel: null,
-    price: 0, shares: 0, lastOk: 0, blocked: false, news: {}, lastBetterAt: 0, unsupported: false
+    price: 0, shares: 0, lastOk: 0, blocked: false, news: {}, lastBetterAt: 0, unsupported: false, movers: []
   };
 
   // ---- Persisted config + UI geometry ----
@@ -159,6 +159,7 @@
         '<div id="vim-chart"></div>' +
         '<div id="vim-meta"></div>' +
         '<div id="vim-stats"></div>' +
+        '<div class="vim-sec open" id="sec-movers"><div class="vim-sec-h" data-sec="movers"><span>🔥 Market movers</span><span class="act"><button id="vim-mvref" class="vim-mini">↻</button><span class="vim-caret">▾</span></span></div><div id="vim-movers" class="vim-sec-b"></div></div>' +
         '<div class="vim-sec" id="sec-journal"><div class="vim-sec-h" data-sec="journal"><span>Journal</span><span class="act"><button id="vim-exp" class="vim-mini">Export</button><button id="vim-clr" class="vim-mini">Reset</button><span class="vim-caret">▾</span></span></div><div id="vim-journal" class="vim-sec-b"></div></div>' +
         '<div class="vim-sec" id="sec-settings"><div class="vim-sec-h" data-sec="settings"><span>Settings</span><span class="vim-caret">▾</span></div>' +
           '<div id="vim-settings" class="vim-sec-b hidden">' +
@@ -197,6 +198,7 @@
     if (window.Notification && Notification.permission === "granted") cta.style.display = "none";
     cta.onclick = () => { try { Notification.requestPermission().then((r) => { if (r === "granted") { cta.style.display = "none"; notify("Alerts on", "You'll be pinged on BUY / SELL / targets."); } }); } catch (e) {} };
     $("vim-exp").onclick = exportCsv;
+    $("vim-mvref").onclick = (e) => { e.stopPropagation(); fetchMovers(); };
     $("vim-clr").onclick = () => { if (confirm("Reset today's stats and journal?")) { STATS = freshStats(); JOURNAL = []; saveStats(); renderStats(); renderJournal(); } };
     $("set-save").onclick = readSettingsUI;
     $("set-ntfytest").onclick = () => {
@@ -211,7 +213,7 @@
       setStatus("connecting Telegram…");
       try { chrome.runtime.sendMessage({ __tgConnect: true, token: CFG.tgToken }, (r) => { if (r && r.ok && r.chat) { CFG.tgChat = r.chat; $("set-tgchat").value = r.chat; saveCfg(); setStatus("Telegram ✓ connected"); } else setStatus("press Start in your bot, then retry"); }); } catch (e) {}
     };
-    syncSettingsUI(); S.chart = null; renderStats(); renderJournal();
+    syncSettingsUI(); S.chart = null; renderStats(); renderJournal(); renderMovers(); fetchMovers();
   }
   function toggleSec(name) {
     const sec = $("sec-" + name), body = $("vim-" + name);
@@ -332,6 +334,18 @@
       return `<div class="vim-je"><span>${hh} ${j.side} ${j.sym}</span><b class="${j.R > 0 ? "pos" : j.R < 0 ? "neg" : ""}">${j.R > 0 ? "+" : ""}${j.R}R <i>${j.exit}</i></b></div>`;
     }).join("");
   }
+  function fetchMovers() {
+    try { chrome.runtime.sendMessage({ __movers: true }, (r) => { if (r && Array.isArray(r.picks)) { S.movers = r.picks; renderMovers(); } }); } catch (e) {}
+  }
+  function renderMovers() {
+    const el = $("vim-movers"); if (!el) return;
+    if (!S.movers.length) { el.innerHTML = '<div class="vim-je muted">No movers yet — opens at market hours (server must be running).</div>'; return; }
+    el.innerHTML = S.movers.map((m) => {
+      const up = m.side === "LONG", cat = m.catalyst ? ` · <i>${m.catalyst}</i>` : "";
+      return `<div class="vim-mv" data-sym="${m.symbol}" title="open on Groww"><span><b class="${up ? "pos" : "neg"}">${up ? "▲" : "▼"} ${m.symbol}</b> <span class="muted">${m.stage}</span>${cat}</span><b class="${up ? "pos" : "neg"}">${m.pChange > 0 ? "+" : ""}${Number(m.pChange).toFixed(1)}%</b></div>`;
+    }).join("");
+    el.querySelectorAll(".vim-mv").forEach((row) => row.onclick = () => window.open("https://groww.in/search?q=" + encodeURIComponent(row.getAttribute("data-sym")), "_blank"));
+  }
   function exportCsv() {
     const rows = [["datetime", "symbol", "side", "entry", "stop", "exit", "R"]];
     JOURNAL.forEach((j) => rows.push([new Date(j.t).toISOString(), j.sym, j.side, j.entry, j.stop, j.exit, j.R]));
@@ -423,6 +437,7 @@
       setInterval(ensurePanel, 3000);
       setInterval(setDot, 2000);
       setInterval(syncJournal, 120000);
+      setInterval(fetchMovers, 120000);
       setTimeout(refresh, 1500);
     }));
   }
