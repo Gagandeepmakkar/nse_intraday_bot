@@ -21,6 +21,11 @@ LOG="cron.log"
     python briefing.py --ntfy --email || echo "briefing.py exited non-zero"
   fi
   python bot.py || echo "bot.py exited non-zero"
+  # During market hours: scan the WHOLE market for the day's top movers and push the
+  # shortlist to phone — so you know which stocks to open in the extension.
+  if [ "$HM" -ge 930 ] && [ "$HM" -le 1515 ]; then
+    python movers.py --ntfy --email || echo "movers.py exited non-zero"
+  fi
   # After market close: self-audit the recorded signals/outcomes and send the report.
   if [ "$HM" -ge 1535 ]; then
     python audit.py --ntfy --email || echo "audit.py exited non-zero"

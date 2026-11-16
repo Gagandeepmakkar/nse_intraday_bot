@@ -492,6 +492,47 @@ class NSESource:
                 "text": str(r.get("attchmntText") or "").strip()})
         return out
 
+    def top_movers(self):
+        """NSE's OWN live top gainers + losers (Capital Market). Returns
+        {"gainers": [...], "losers": [...]}, each row:
+        {symbol, ltp, pChange, prevClose, volume}. Deduped, sorted by |move|.
+        Empty lists on any error. The detection is free — NSE publishes these live."""
+        def _f(v):
+            try:
+                return float(str(v).replace(",", "").replace("%", "").strip() or 0)
+            except Exception:
+                return 0.0
+        out = {"gainers": [], "losers": []}
+        for side, key in (("gainers", "gainers"), ("losers", "loosers")):  # NSE spells it "loosers"
+            data = self._api("/api/live-analysis-variations", {"index": key})
+            rows, best = [], {}
+            # response groups rows under index buckets; scan any nested "data" arrays.
+            buckets = list(data.values()) if isinstance(data, dict) else []
+            if isinstance(data, dict) and isinstance(data.get("data"), list):
+                buckets.append(data)
+            for grp in buckets:
+                items = grp.get("data") if isinstance(grp, dict) else grp
+                if not isinstance(items, list):
+                    continue
+                for r in items:
+                    if not isinstance(r, dict):
+                        continue
+                    sym = str(r.get("symbol", "")).strip().upper()
+                    if not sym:
+                        continue
+                    rows.append({
+                        "symbol": sym,
+                        "ltp": _f(r.get("ltp") or r.get("lastPrice")),
+                        "pChange": _f(r.get("perChange") if r.get("perChange") is not None else r.get("pChange")),
+                        "prevClose": _f(r.get("prev_price") or r.get("previousClose")),
+                        "volume": _f(r.get("trade_quantity") or r.get("totalTradedVolume"))})
+            for r in rows:
+                s = r["symbol"]
+                if s not in best or abs(r["pChange"]) > abs(best[s]["pChange"]):
+                    best[s] = r
+            out[side] = sorted(best.values(), key=lambda x: abs(x["pChange"]), reverse=True)
+        return out
+
 
 class MockSource:
     """Deterministic synthetic data for offline verification.

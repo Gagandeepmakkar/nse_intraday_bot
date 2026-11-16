@@ -993,8 +993,12 @@ def main():
             r["candles"] = []
     write_dashboard(stamp, status, regime, regime_detail, breadth, coverage,
                     buy_list if buy_mode else top_list)
-    notify_telegram(report)
-    notify_email(f"NSE intraday engine — {stamp}", report)
+    # The big daily report is now OFF by default — movers.py sends the focused intraday
+    # push instead. The scan still runs (dashboard + signals.db for the extension's picks).
+    # Set BOT_NOTIFY=1 in .env to re-enable the full email/telegram report.
+    if os.getenv("BOT_NOTIFY", "0") == "1":
+        notify_telegram(report)
+        notify_email(f"NSE intraday engine — {stamp}", report)
 
 
 if __name__ == "__main__":
