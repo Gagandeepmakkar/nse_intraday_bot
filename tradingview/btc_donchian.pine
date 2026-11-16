@@ -1,0 +1,82 @@
+//@version=6
+// BTC/ETH Donchian Trend — the SAME strategy the BTC extension computes, drawn on the chart
+// so TradingView and the extension panel agree. Long+short trend-following: enter on a
+// 20-bar Donchian breakout, ride it with a 3xATR Chandelier trailing stop, exit when the
+// trail is hit. This is the ONE crypto approach that backtested positive over 8 years
+// (long-only scored higher; long+short also profits in downtrends). Use on the DAILY chart
+// for the proven edge — faster timeframes backtest worse. Patient; honour the stop. NOT advice.
+indicator("BTC Donchian Trend (long+short)", overlay=true, max_labels_count=200)
+
+period   = input.int(20,  "Donchian period", minval=5)
+atrMult  = input.float(3.0, "ATR trailing-stop multiple", step=0.5)
+atrLen   = input.int(14,  "ATR length")
+allowShort = input.bool(true, "Trade shorts too (profit in downtrends)")
+
+upper = ta.highest(high, period)[1]   // prior N-bar high = long breakout level
+lower = ta.lowest(low, period)[1]     // prior N-bar low  = short breakout level
+a     = ta.atr(atrLen)
+
+var int   pos   = 0      // 1 long, -1 short, 0 flat
+var float entry = na
+var float trail = na
+int posPrev = pos
+
+if pos == 0
+    if close > upper
+        pos := 1
+        entry := close
+        trail := ta.highest(high, period) - atrMult * a
+    else if allowShort and close < lower
+        pos := -1
+        entry := close
+        trail := ta.lowest(low, period) + atrMult * a
+else if pos == 1
+    trail := math.max(trail, ta.highest(high, period) - atrMult * a)
+    if close < trail
+        pos := 0
+        entry := na
+        trail := na
+else
+    trail := math.min(trail, ta.lowest(low, period) + atrMult * a)
+    if close > trail
+        pos := 0
+        entry := na
+        trail := na
+
+enterLong  = pos == 1  and posPrev != 1
+enterShort = pos == -1 and posPrev != -1
+exitTrade  = pos == 0  and posPrev != 0
+
+// ----- plots -----
+plot(upper, "Donchian high", color.new(color.teal, 40), 1)
+plot(lower, "Donchian low",  color.new(color.teal, 40), 1)
+plot(pos != 0 ? trail : na, "Trailing stop", pos == 1 ? color.new(color.red, 0) : color.new(color.red, 0), 2, plot.style_linebr)
+plot(pos != 0 ? entry : na, "Entry", color.new(color.blue, 0), 1, plot.style_linebr)
+bgcolor(pos == 1 ? color.new(color.green, 90) : pos == -1 ? color.new(color.red, 90) : na, title="Position")
+
+plotshape(enterLong,  "Enter long",  shape.triangleup,   location.belowbar, color.new(color.green, 0), text="LONG",  size=size.small)
+plotshape(enterShort, "Enter short", shape.triangledown, location.abovebar, color.new(color.red, 0),   text="SHORT", size=size.small)
+plotshape(exitTrade,  "Exit",        shape.xcross,       location.abovebar, color.new(color.gray, 0),  text="EXIT",  size=size.tiny)
+
+// ----- dashboard -----
+var table tb = table.new(position.top_right, 2, 4, border_width=1)
+if barstate.islast
+    st = pos == 1 ? "LONG" : pos == -1 ? "SHORT" : "FLAT"
+    scol = pos == 1 ? color.new(color.green, 0) : pos == -1 ? color.new(color.red, 0) : color.new(color.gray, 35)
+    pnl = pos != 0 and not na(entry) ? pos * (close / entry - 1) * 100 : na
+    table.cell(tb, 0, 0, "Donchian Trend", text_color=color.white, bgcolor=color.new(color.black, 20))
+    table.cell(tb, 1, 0, st, text_color=color.white, bgcolor=scol)
+    table.cell(tb, 0, 1, "Entry / Stop", text_color=color.white, bgcolor=color.new(color.gray, 55))
+    table.cell(tb, 1, 1, pos == 0 ? "—" : str.tostring(entry, format.mintick) + " / " + str.tostring(trail, format.mintick), text_color=color.silver)
+    table.cell(tb, 0, 2, "Open P&L", text_color=color.white, bgcolor=color.new(color.gray, 55))
+    table.cell(tb, 1, 2, na(pnl) ? "—" : str.tostring(pnl, "#.0") + "%", text_color = na(pnl) ? color.silver : pnl >= 0 ? color.lime : color.red)
+    table.cell(tb, 0, 3, "Watch", text_color=color.white, bgcolor=color.new(color.gray, 55))
+    table.cell(tb, 1, 3, pos == 0 ? ("long>" + str.tostring(upper, format.mintick) + (allowShort ? " / short<" + str.tostring(lower, format.mintick) : "")) : "trail " + str.tostring(trail, format.mintick), text_color=color.silver)
+
+// ----- alerts -----
+if enterLong
+    alert("Donchian LONG " + syminfo.ticker + " @" + str.tostring(close, format.mintick) + " stop " + str.tostring(trail, format.mintick), alert.freq_once_per_bar_close)
+if enterShort
+    alert("Donchian SHORT " + syminfo.ticker + " @" + str.tostring(close, format.mintick) + " stop " + str.tostring(trail, format.mintick), alert.freq_once_per_bar_close)
+if exitTrade
+    alert("Donchian EXIT " + syminfo.ticker + " — trailing stop hit", alert.freq_once_per_bar_close)
