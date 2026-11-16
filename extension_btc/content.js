@@ -134,5 +134,5 @@
     } catch (e) {}
   }
 
-  loadCfg(() => { build(); refresh(); renderTrades(); setInterval(() => { refresh(); renderTrades(); }, 30000); setInterval(ensurePanel, 4000); });
+  loadCfg(() => { build(); refresh(); renderTrades(); setInterval(() => { refresh(); renderTrades(); }, 20000); setInterval(ensurePanel, 4000); });
 })();
