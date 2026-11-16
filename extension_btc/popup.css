@@ -1,0 +1,22 @@
+* { box-sizing: border-box; margin: 0; }
+body { width: 320px; padding: 11px; background: #0c0f14; color: #e8eaed; font: 13px/1.4 -apple-system, "Segoe UI", Roboto, system-ui, sans-serif; }
+.hd { display: flex; align-items: center; margin-bottom: 10px; }
+.title { font-weight: 800; font-size: 14px; }
+.mode { margin-left: auto; font-size: 10px; color: #8b95a3; }
+.rows { margin-bottom: 10px; }
+.row { background: #10151d; border: 1px solid #1b232e; border-radius: 10px; padding: 10px 11px; margin-bottom: 8px; }
+.r1 { display: flex; align-items: center; gap: 9px; }
+.sym { font-weight: 800; font-size: 14px; }
+.badge { font-size: 10px; font-weight: 800; padding: 3px 9px; border-radius: 999px; }
+.badge.long { background: #10331f; color: #5ee490; } .badge.short { background: #3a1114; color: #ff8a93; } .badge.flat { background: #1a2029; color: #8b95a3; }
+.px { margin-left: auto; font-weight: 700; } .r1 b { font-weight: 800; }
+.pos { color: #3fcf6b; } .neg { color: #ff5b6b; }
+.det { font-size: 11px; color: #96a0ad; margin-top: 6px; line-height: 1.5; }
+.sec { background: #0c1117; border: 1px solid #1e2733; border-radius: 10px; padding: 11px; margin-bottom: 9px; }
+.f { display: flex; flex-direction: column; font-size: 10px; color: #8b95a3; margin-bottom: 9px; }
+.f span { margin-bottom: 4px; }
+.f input, .f select { width: 100%; background: #141a22; color: #e8eaed; border: 1px solid #28313d; border-radius: 7px; padding: 7px 8px; font-size: 12px; }
+.chk { display: flex; align-items: center; gap: 7px; font-size: 11px; color: #cfd5dd; margin-bottom: 9px; }
+.chk input { width: 14px; height: 14px; }
+.save { width: 100%; background: #10331f; color: #5ee490; border: 1px solid #1c5235; border-radius: 9px; padding: 8px; font-weight: 700; font-size: 12px; cursor: pointer; }
+.foot { font-size: 9.5px; color: #5a6472; line-height: 1.55; }

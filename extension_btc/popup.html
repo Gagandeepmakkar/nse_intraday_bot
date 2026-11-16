@@ -1,0 +1,17 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><link rel="stylesheet" href="popup.css"></head>
+<body>
+  <div class="hd"><span class="title">₿ BTC/ETH Trend</span><span id="mode" class="mode"></span></div>
+  <div id="rows" class="rows">loading…</div>
+  <div class="sec">
+    <label class="f"><span>Timeframe</span><select id="int"><option value="1d">Daily (proven edge)</option><option value="4h">4-hour</option><option value="1h">1-hour</option></select></label>
+    <label class="chk"><input type="checkbox" id="short"> Allow shorts (unproven — backtest loses)</label>
+    <label class="f"><span>Phone alerts — ntfy topic</span><input id="ntfy" placeholder="your secret topic"></label>
+    <button id="save" class="save">Save</button>
+  </div>
+  <div class="foot">Daily long-only = the 8-year backtested edge. Patient trend-following, big drawdowns, honour the stop. NOT advice.</div>
+  <script src="engine.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
