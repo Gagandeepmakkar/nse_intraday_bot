@@ -3,7 +3,7 @@
 "use strict";
 importScripts("engine.js");
 
-const SYMS = ["BTCUSDT", "ETHUSDT"];
+const SYMS = ["BTC", "ETH"];
 
 chrome.runtime.onInstalled.addListener(() => chrome.alarms.create("btc-check", { periodInMinutes: 60 }));
 chrome.runtime.onStartup.addListener(() => chrome.alarms.create("btc-check", { periodInMinutes: 60 }));
@@ -15,7 +15,7 @@ async function pushNtfy(topic, title, text) {
 }
 
 async function check() {
-  const cfg = Object.assign({ interval: "1d", period: 20, allowShort: false, ntfyTopic: "" },
+  const cfg = Object.assign({ interval: "1d", period: 20, allowShort: true, ntfyTopic: "" },
     (await chrome.storage.local.get("btccfg")).btccfg || {});
   for (const sym of SYMS) {
     try {

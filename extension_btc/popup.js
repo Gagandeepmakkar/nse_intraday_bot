@@ -1,7 +1,7 @@
 "use strict";
 const E = window.BTCEngine;
-const SYMS = [["BTCUSDT", "BTC"], ["ETHUSDT", "ETH"]];
-const DEFAULTS = { interval: "1d", period: 20, allowShort: false, ntfyTopic: "" };
+const SYMS = ["BTC", "ETH"];
+const DEFAULTS = { interval: "1d", period: 20, allowShort: true, ntfyTopic: "" };
 let CFG = Object.assign({}, DEFAULTS);
 const $ = (id) => document.getElementById(id);
 const fmt = (n) => n >= 1000 ? n.toLocaleString("en-US", { maximumFractionDigits: 0 }) : n.toFixed(2);
@@ -9,7 +9,7 @@ const fmt = (n) => n >= 1000 ? n.toLocaleString("en-US", { maximumFractionDigits
 function render(states) {
   $("mode").textContent = CFG.interval + (CFG.allowShort ? " L/S" : " L");
   $("rows").innerHTML = states.map((st, i) => {
-    const label = SYMS[i][1];
+    const label = SYMS[i];
     const pos = st.pos === 1 ? "LONG" : st.pos === -1 ? "SHORT" : "FLAT";
     const cls = st.pos === 1 ? "long" : st.pos === -1 ? "short" : "flat";
     const pnl = st.pos ? `<b class="${st.pnl >= 0 ? "pos" : "neg"}">${st.pnl >= 0 ? "+" : ""}${st.pnl.toFixed(1)}%</b>` : "";

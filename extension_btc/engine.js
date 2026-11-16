@@ -1,25 +1,36 @@
-// Shared Donchian trend engine (no DOM) — used by both the popup and the background worker.
-// Reads free Binance public data. Default = daily, long-only (the backtested edge). A faster
-// interval + allowShort can be enabled for testing, but the backtest shows those LOSE after
-// costs — the engine is honest about which mode is proven.
+// Shared Donchian trend engine (no DOM) — used by the popup and the background worker.
+// Pulls free crypto data with a FALLBACK CHAIN (Binance -> Coinbase) so it works whichever
+// is reachable/CORS-ok in your browser/region. Long+short trend-following with an ATR trail.
 (function (root) {
   "use strict";
-  async function klines(sym, interval, limit) {
-    const r = await fetch(`https://api.binance.com/api/v3/klines?symbol=${sym}&interval=${interval}&limit=${limit}`);
-    if (!r.ok) throw new Error("binance " + r.status);
-    return (await r.json()).map(k => ({ t: k[0], o: +k[1], h: +k[2], l: +k[3], c: +k[4] }));
+  const SYM = { BTC: { binance: "BTCUSDT", cb: "BTC-USD" }, ETH: { binance: "ETHUSDT", cb: "ETH-USD" } };
+  const IV = { "1d": { binance: "1d", cb: 86400 }, "4h": { binance: "4h", cb: 14400 }, "1h": { binance: "1h", cb: 3600 } };
+
+  async function grab(url, parse) { const r = await fetch(url); if (!r.ok) throw new Error(url.split("/")[2] + " " + r.status); return parse(await r.json()); }
+
+  // Normalised candles [{t,o,h,l,c}] ascending, whichever source answers first.
+  async function klines(k, interval, limit) {
+    const m = SYM[k], iv = IV[interval] || IV["1d"];
+    try {
+      return await grab(`https://api.binance.com/api/v3/klines?symbol=${m.binance}&interval=${iv.binance}&limit=${limit}`,
+        j => j.map(c => ({ t: c[0], o: +c[1], h: +c[2], l: +c[3], c: +c[4] })));
+    } catch (e) { /* fall through */ }
+    // Coinbase returns newest-first [time,low,high,open,close,vol]; reverse to ascending.
+    const arr = await grab(`https://api.exchange.coinbase.com/products/${m.cb}/candles?granularity=${iv.cb}`,
+      j => j.map(c => ({ t: c[0] * 1000, l: +c[1], h: +c[2], o: +c[3], c: +c[4] })).reverse());
+    return arr.slice(-limit);
   }
-  async function price(sym) {
-    const r = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${sym}`);
-    return +(await r.json()).price;
+  async function price(k) {
+    const m = SYM[k];
+    try { return await grab(`https://api.binance.com/api/v3/ticker/price?symbol=${m.binance}`, j => +j.price); } catch (e) {}
+    return await grab(`https://api.exchange.coinbase.com/products/${m.cb}/ticker`, j => +j.price);
   }
   function atr(c, i, p = 14) {
     let s = 0, n = 0;
     for (let k = Math.max(1, i - p + 1); k <= i; k++) { s += Math.max(c[k].h - c[k].l, Math.abs(c[k].h - c[k - 1].c), Math.abs(c[k].l - c[k - 1].c)); n++; }
     return n ? s / n : 0;
   }
-  // Replay Donchian(period) long(+optional short) with a 3xATR chandelier trail on CLOSED
-  // candles. Returns the CURRENT committed position + the levels to watch.
+  // Donchian(period) long+short with 3xATR chandelier trail, on CLOSED candles.
   function donchian(bars, period, allowShort) {
     let pos = 0, entry = 0, stop = 0, entryI = 0;
     for (let i = period + 1; i < bars.length; i++) {
@@ -44,15 +55,13 @@
       dnBreak: Math.min.apply(null, bars.slice(L - period + 1, L + 1).map(d => d.l))
     };
   }
-  // Full state for one symbol: closed-bar position + live price + P&L.
-  async function state(sym, cfg) {
+  async function state(k, cfg) {
     const interval = cfg.interval || "1d", period = cfg.period || 20;
-    const raw = await klines(sym, interval, period + 40);
-    const closed = raw.slice(0, -1);                 // last candle is still forming
-    const d = donchian(closed, period, !!cfg.allowShort);
-    const px = await price(sym);
+    const closed = (await klines(k, interval, period + 45)).slice(0, -1);
+    const d = donchian(closed, period, cfg.allowShort !== false);   // long+short by default
+    const px = await price(k);
     const pnl = d.pos ? d.pos * (px / d.entry - 1) * 100 : 0;
-    return { sym, interval, period, px, pnl, ...d };
+    return { sym: k, interval, px, pnl, ...d };
   }
   root.BTCEngine = { klines, price, donchian, state };
 })(typeof self !== "undefined" ? self : this);

@@ -5,8 +5,8 @@
   if (window.__btcTrendLoaded) return;
   window.__btcTrendLoaded = true;
   const E = self.BTCEngine;
-  const SYMS = [["BTCUSDT", "BTC"], ["ETHUSDT", "ETH"]];
-  const DEFAULTS = { interval: "1d", period: 20, allowShort: false, ntfyTopic: "" };
+  const SYMS = ["BTC", "ETH"];
+  const DEFAULTS = { interval: "1d", period: 20, allowShort: true, ntfyTopic: "" };
   let CFG = Object.assign({}, DEFAULTS);
   const $ = (id) => document.getElementById(id);
 
@@ -23,11 +23,11 @@
       '<div id="btc-set" class="hidden">' +
         '<label class="btc-f"><span>Timeframe</span><select id="btc-int"><option value="1d">Daily (proven)</option><option value="4h">4-hour</option><option value="1h">1-hour</option></select></label>' +
         '<label class="btc-f"><span>Donchian period</span><input id="btc-per" type="number" value="20"></label>' +
-        '<label class="btc-chk"><input type="checkbox" id="btc-short"> Allow shorts (unproven — backtest LOSES)</label>' +
+        '<label class="btc-chk"><input type="checkbox" id="btc-short"> Trade both long &amp; short (on by default)</label>' +
         '<label class="btc-f"><span>Phone alerts — ntfy topic</span><input id="btc-ntfy" placeholder="your secret topic"></label>' +
         '<button id="btc-save" class="btc-save">Save</button>' +
       '</div>' +
-      '<div id="btc-foot">Daily long-only is the backtested edge (8y). Faster/short modes are for testing — they lost after costs. Patient trend-following; honour the stop. NOT advice.</div>' +
+      '<div id="btc-foot">Long+short daily trend (8y backtest: profits in up AND down trends at low cost; long-only scored higher but misses downtrends). Patient — trades last days-weeks, honour the stop. NOT advice.</div>' +
       '</div>';
     document.body.appendChild(p);
     $("btc-min").onclick = () => p.classList.toggle("min");
@@ -61,9 +61,9 @@
     ensurePanel();
     const mode = $("btc-mode"); if (mode) mode.textContent = CFG.interval + (CFG.allowShort ? " L/S" : " L");
     try {
-      const states = await Promise.all(SYMS.map(([s]) => E.state(s, CFG)));
+      const states = await Promise.all(SYMS.map((s) => E.state(s, CFG)));
       const el = $("btc-rows");
-      if (el) el.innerHTML = states.map((st, i) => rowHtml(st, SYMS[i][1])).join("");
+      if (el) el.innerHTML = states.map((st, i) => rowHtml(st, SYMS[i])).join("");
     } catch (e) { const el = $("btc-rows"); if (el) el.innerHTML = '<div class="btc-det">Binance unreachable — retrying…</div>'; }
   }
 
