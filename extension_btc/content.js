@@ -19,6 +19,8 @@
       '<div id="btc-head"><span class="t">₿ Trend</span><span id="btc-mode"></span><span id="btc-gear" class="ic" title="settings">⚙</span><span id="btc-min" class="ic">–</span></div>' +
       '<div id="btc-body">' +
       '<div id="btc-rows"></div>' +
+      '<div id="btc-stats"></div>' +
+      '<div id="btc-journal"></div>' +
       '<div id="btc-set" class="hidden">' +
         '<label class="btc-f"><span>Timeframe</span><select id="btc-int"><option value="1d">Daily (proven)</option><option value="4h">4-hour</option><option value="1h">1-hour</option></select></label>' +
         '<label class="btc-f"><span>Donchian period</span><input id="btc-per" type="number" value="20"></label>' +
@@ -44,6 +46,24 @@
     document.addEventListener("mouseup", () => { drag = false; });
   }
   function ensurePanel() { if (!$("btc-panel")) build(); }
+
+  // Performance tracking — reads the trades the background worker journaled.
+  function renderTrades() {
+    try {
+      chrome.storage.local.get(["btcjournal"], (r) => {
+        const jr = r.btcjournal || [], sEl = $("btc-stats"), jEl = $("btc-journal");
+        if (sEl) {
+          if (!jr.length) sEl.innerHTML = '<div class="btc-det">📓 No closed trades tracked yet — fills as trends complete.</div>';
+          else {
+            const n = jr.length, wins = jr.filter((x) => x.R > 0).length, tot = jr.reduce((a, b) => a + b.R, 0), exp = tot / n;
+            sEl.innerHTML = `<div class="btc-strow"><span>Trades<b>${n}</b></span><span>Win<b>${Math.round(wins / n * 100)}%</b></span><span>Total<b class="${tot >= 0 ? "pos" : "neg"}">${tot.toFixed(1)}R</b></span><span>Exp<b class="${exp >= 0 ? "pos" : "neg"}">${exp.toFixed(2)}R</b></span></div>`;
+          }
+        }
+        if (jEl) jEl.innerHTML = jr.slice(-5).reverse().map((x) => `<div class="btc-je"><span>${x.side} ${x.sym} @${fmt(x.entry)}→${fmt(x.exit)}</span><b class="${x.R > 0 ? "pos" : "neg"}">${x.R > 0 ? "+" : ""}${x.R}R</b></div>`).join("");
+      });
+    } catch (e) {}
+  }
+  try { chrome.storage.onChanged.addListener((ch, area) => { if (area === "local" && ch.btcjournal) renderTrades(); }); } catch (e) {}
 
   function fmt(n) { return n >= 1000 ? n.toLocaleString("en-US", { maximumFractionDigits: 0 }) : n.toFixed(2); }
   function rowHtml(st, label) {
@@ -71,5 +91,5 @@
     } catch (e) {}
   }
 
-  loadCfg(() => { build(); refresh(); setInterval(refresh, 30000); setInterval(ensurePanel, 4000); });
+  loadCfg(() => { build(); refresh(); renderTrades(); setInterval(() => { refresh(); renderTrades(); }, 30000); setInterval(ensurePanel, 4000); });
 })();

@@ -28,6 +28,13 @@
 .btc-r1 b { font-weight: 800; font-variant-numeric: tabular-nums; }
 .pos { color: #3fcf6b; } .neg { color: #ff5b6b; }
 .btc-det { font-size: 11px; color: #96a0ad; margin-top: 6px; line-height: 1.5; }
+#btc-stats { margin-bottom: 9px; }
+.btc-strow { display: flex; gap: 6px; }
+.btc-strow span { flex: 1; background: #10151d; border: 1px solid #1b232e; border-radius: 8px; padding: 6px 3px; text-align: center; font-size: 8.5px; color: #8b95a3; text-transform: uppercase; letter-spacing: .3px; }
+.btc-strow b { display: block; font-size: 12px; font-weight: 800; margin-top: 2px; color: #e8eaed; }
+#btc-journal { margin-bottom: 9px; }
+.btc-je { display: flex; justify-content: space-between; font-size: 11px; padding: 3px 0; border-bottom: 1px solid #141b24; color: #aab3c0; }
+.btc-je b { font-weight: 800; }
 .hidden { display: none; }
 #btc-set { background: #0c1117; border: 1px solid #1e2733; border-radius: 10px; padding: 11px; margin-bottom: 9px; }
 .btc-f { display: flex; flex-direction: column; font-size: 10px; color: #8b95a3; margin-bottom: 9px; }
