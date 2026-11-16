@@ -14,7 +14,7 @@
     url: "", auth: "", symbol: "", interval: 5,
     phase: 0, entry: 0, stop: 0, t1: 0, t2: 0, t1done: false, eScore: 0, entry0: 0, stop0: 0,
     chart: null, series: null, lines: [], ro: null, panel: null, hh: 0, ll: 0, atr0: 0,
-    price: 0, shares: 0, lastOk: 0, blocked: false, news: {}, lastBetterAt: 0, unsupported: false, movers: [], watchlist: {}
+    price: 0, shares: 0, lastOk: 0, blocked: false, news: {}, lastBetterAt: 0, unsupported: false, movers: [], watchlist: {}, lastRawUrl: ""
   };
 
   // ---- Persisted config + UI geometry ----
@@ -60,11 +60,13 @@
   window.addEventListener("message", (e) => {
     const d = e.data;
     if (!(d && d.__nlcGroww && d.url && d.url.indexOf("charting_service") !== -1)) return;
-    // Only act on an identifiable NSE CASH (equity) chart. Indices, F&O, MF, crypto etc.
-    // have a different path and no clean ticker — signalling on them produces garbage.
-    const m = d.url.match(/\/CASH\/([A-Za-z][A-Za-z0-9&._-]{0,19})\//);
-    const sym = m ? m[1].toUpperCase() : "";
-    if (sym && !/^\d+$/.test(sym)) {
+    S.lastRawUrl = d.url;   // keep the raw URL for diagnosis even if we reject it
+    // Identify an NSE equity chart. Capture the ticker after /CASH/ (lenient: any segment
+    // up to the next / ? #, digit-start allowed e.g. 3MINDIA/5PAISA). Non-equity charts
+    // (indices, F&O, MF) have no /CASH/<ticker> and are skipped to avoid garbage signals.
+    const m = d.url.match(/\/CASH\/([^/?#]+)/i);
+    const sym = m ? m[1].toUpperCase().trim() : "";
+    if (sym && /^[A-Z0-9][A-Z0-9&._-]{0,24}$/.test(sym)) {
       S.unsupported = false;
       S.url = d.url; if (d.auth) S.auth = d.auth;
       if (sym !== S.symbol) {
@@ -110,7 +112,8 @@
         action: d ? d.action : "?", score: d ? d.score : null, longScore: d ? d.longScore : null, shortScore: d ? d.shortScore : null,
         phase: S.phase, price: S.price, candles: nCandles || 0, hasUrl: !!S.url,
         trades: STATS.trades, journalLen: JOURNAL.length, news: (S.news && S.news.sentiment) || null,
-        caution: (S.news && S.news.caution) || null, note: d ? d.note : null, blocked: S.blocked
+        caution: (S.news && S.news.caution) || null, note: d ? d.note : null, blocked: S.blocked,
+        unsupported: S.unsupported, rawUrlPath: (S.lastRawUrl || "").split("?")[0].slice(-120)
       } });
     } catch (e) {}
   }
