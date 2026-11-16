@@ -14,7 +14,7 @@
     url: "", auth: "", symbol: "", interval: 5,
     phase: 0, entry: 0, stop: 0, t1: 0, t2: 0, t1done: false, eScore: 0, entry0: 0, stop0: 0,
     chart: null, series: null, lines: [], ro: null, panel: null,
-    price: 0, shares: 0, lastOk: 0, blocked: false, news: {}, lastBetterAt: 0
+    price: 0, shares: 0, lastOk: 0, blocked: false, news: {}, lastBetterAt: 0, unsupported: false
   };
 
   // ---- Persisted config + UI geometry ----
@@ -60,12 +60,21 @@
   window.addEventListener("message", (e) => {
     const d = e.data;
     if (!(d && d.__nlcGroww && d.url && d.url.indexOf("charting_service") !== -1)) return;
-    S.url = d.url;
-    if (d.auth) S.auth = d.auth;
-    const m = d.url.match(/\/CASH\/([^/]+)\/daily/);
-    if (m && m[1] !== S.symbol) {
+    // Only act on an identifiable NSE CASH (equity) chart. Indices, F&O, MF, crypto etc.
+    // have a different path and no clean ticker — signalling on them produces garbage.
+    const m = d.url.match(/\/CASH\/([A-Za-z][A-Za-z0-9&._-]{0,19})\//);
+    const sym = m ? m[1].toUpperCase() : "";
+    if (sym && !/^\d+$/.test(sym)) {
+      S.unsupported = false;
+      S.url = d.url; if (d.auth) S.auth = d.auth;
+      if (sym !== S.symbol) {
+        if (S.phase !== 0) closeTrade(floatingR(), "SWITCH");
+        S.symbol = sym; S.price = 0; S.news = {}; reset(); fetchNews();
+      }
+    } else {
+      // a chart we can't identify as an NSE equity — stop signalling on it
       if (S.phase !== 0) closeTrade(floatingR(), "SWITCH");
-      S.symbol = m[1]; S.price = 0; S.news = {}; reset(); fetchNews();
+      S.unsupported = true; S.symbol = ""; S.url = ""; S.price = 0; reset();
     }
   });
   function fetchNews() {
@@ -285,7 +294,7 @@
   function machine(forming, d) {
     S.blocked = STATS.trades >= CFG.maxTrades || STATS.cumR <= -Math.abs(CFG.maxLossR);
     if (S.phase === 0) {
-      if (!S.blocked && d.levels && (d.action === "BUY" || d.action === "SELL")) {
+      if (!S.blocked && S.symbol && d.levels && (d.action === "BUY" || d.action === "SELL")) {
         S.phase = d.action === "BUY" ? 1 : -1;
         S.entry = d.levels.entry; S.stop = d.levels.stop; S.t1 = d.levels.target1; S.t2 = d.levels.target2;
         S.entry0 = S.entry; S.stop0 = S.stop; S.t1done = false; S.eScore = d.score;
@@ -367,7 +376,17 @@
 
   async function refresh() {
     ensurePanel(); rolloverIfNewDay(); setDot();
-    if (!S.url) { setDot(); return; }
+    if (S.unsupported || !S.url || !S.symbol) {
+      const act = $("vim-action"); if (act) { act.textContent = S.unsupported ? "NOT A STOCK" : "OPEN A STOCK"; act.className = "WAIT"; }
+      const rc = $("vim-reason"); if (rc) rc.textContent = S.unsupported
+        ? "This chart isn't an NSE equity — open a stock (e.g. GRANULES) to get signals."
+        : "Open an NSE stock chart on Groww to begin.";
+      const sy = $("vim-sym"); if (sy) sy.textContent = S.unsupported ? "unsupported" : "—";
+      const lv = $("vim-levels"); if (lv) lv.innerHTML = "";
+      const fc = $("vim-factors"); if (fc) fc.innerHTML = "";
+      heartbeat(null, 0);
+      return;
+    }
     if (!S.news.sentiment && S.symbol) fetchNews();
     try {
       const candles = await fetchCandles(S.interval);
