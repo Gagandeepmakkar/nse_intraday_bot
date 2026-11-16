@@ -7,6 +7,8 @@
   const SYMS = ["BTC", "ETH"];   // data is fetched by the background worker (handles CORS/geo)
   const DEFAULTS = { interval: "1d", period: 20, allowShort: true, ntfyTopic: "" };
   let CFG = Object.assign({}, DEFAULTS);
+  let lastStates = null;
+  const CHART = { obj: null, series: null, lines: [], sym: "BTC" };
   const $ = (id) => document.getElementById(id);
 
   function loadCfg(cb) { try { chrome.storage.local.get(["btccfg"], (r) => { CFG = Object.assign({}, DEFAULTS, r.btccfg || {}); cb && cb(); }); } catch (e) { cb && cb(); } }
@@ -19,6 +21,8 @@
       '<div id="btc-head"><span class="t">₿ Trend</span><span id="btc-mode"></span><span id="btc-gear" class="ic" title="settings">⚙</span><span id="btc-min" class="ic">–</span></div>' +
       '<div id="btc-body">' +
       '<div id="btc-rows"></div>' +
+      '<div id="btc-chart-tabs"><span class="btc-tab active" data-s="BTC">BTC</span><span class="btc-tab" data-s="ETH">ETH</span></div>' +
+      '<div id="btc-chart"></div>' +
       '<div id="btc-stats"></div>' +
       '<div id="btc-journal"></div>' +
       '<div id="btc-set" class="hidden">' +
@@ -33,6 +37,11 @@
     document.body.appendChild(p);
     $("btc-min").onclick = () => p.classList.toggle("min");
     $("btc-gear").onclick = () => $("btc-set").classList.toggle("hidden");
+    p.querySelectorAll(".btc-tab").forEach((t) => t.onclick = () => {
+      CHART.sym = t.dataset.s;
+      p.querySelectorAll(".btc-tab").forEach((x) => x.classList.toggle("active", x === t));
+      drawChart();
+    });
     $("btc-int").value = CFG.interval; $("btc-per").value = CFG.period; $("btc-short").checked = CFG.allowShort; $("btc-ntfy").value = CFG.ntfyTopic;
     $("btc-save").onclick = () => {
       CFG.interval = $("btc-int").value; CFG.period = parseInt($("btc-per").value, 10) || 20;
@@ -46,6 +55,39 @@
     document.addEventListener("mouseup", () => { drag = false; });
   }
   function ensurePanel() { if (!$("btc-panel")) build(); }
+
+  // Mini chart — the extension can't draw on TradingView's own chart (locked canvas),
+  // so it draws the candles + Donchian levels here. For the full on-chart view use the
+  // btc_donchian.pine script, which runs inside TradingView and marks the chart directly.
+  function ensureChart() {
+    if (CHART.obj || !window.LightweightCharts) return;
+    const div = $("btc-chart"); if (!div || !div.clientWidth) return;
+    CHART.obj = LightweightCharts.createChart(div, {
+      height: 150, width: div.clientWidth,
+      layout: { background: { color: "transparent" }, textColor: "#8b95a3", fontSize: 10 },
+      grid: { vertLines: { color: "#141b24" }, horzLines: { color: "#141b24" } },
+      timeScale: { timeVisible: CFG.interval !== "1d", secondsVisible: false, borderColor: "#1b232e" },
+      rightPriceScale: { borderColor: "#1b232e" }, handleScroll: false, handleScale: false
+    });
+    CHART.series = CHART.obj.addCandlestickSeries({ upColor: "#3fcf6b", downColor: "#ff5b6b", borderVisible: false, wickUpColor: "#3fcf6b", wickDownColor: "#ff5b6b" });
+  }
+  function drawChart() {
+    ensureChart();
+    if (!CHART.series || !lastStates) return;
+    const st = lastStates[SYMS.indexOf(CHART.sym)];
+    if (!st || st.err || !st.bars || !st.bars.length) return;
+    CHART.series.setData(st.bars.map((b) => ({ time: b.t, open: b.o, high: b.h, low: b.l, close: b.c })));
+    CHART.lines.forEach((l) => CHART.series.removePriceLine(l)); CHART.lines = [];
+    const add = (price, color, title) => { if (price) CHART.lines.push(CHART.series.createPriceLine({ price, color, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title })); };
+    if (st.pos) {
+      add(st.entry, "#4cc2ff", "Entry");
+      add(st.stop, "#ff5b6b", st.entryBarsAgo <= 5 ? "SL" : "Trail");
+      if (st.entryBarsAgo <= 5) { add(st.t1, "#e0b341", "T1"); add(st.t2, "#3fcf6b", "T2"); }
+    } else {
+      add(st.upBreak, "#3fcf6b", "Long>"); if (CFG.allowShort) add(st.dnBreak, "#ff5b6b", "Short<");
+    }
+    CHART.obj.timeScale().fitContent();
+  }
 
   // Performance tracking — reads the trades the background worker journaled.
   function renderTrades() {
@@ -85,6 +127,7 @@
         const el = $("btc-rows"); if (!el) return;
         if (!states || !states.length) { el.innerHTML = '<div class="btc-det">No crypto source reachable — retrying…</div>'; return; }
         el.innerHTML = states.map((st, i) => st && !st.err ? rowHtml(st, SYMS[i]) : `<div class="btc-det">${SYMS[i]}: ${(st && st.err) || "no data"}</div>`).join("");
+        lastStates = states; drawChart();
         const src = states.find((s) => s && s.source);
         if (mode && src) mode.textContent = CFG.interval + (CFG.allowShort ? " L/S" : " L") + " · " + src.source;
       });

@@ -28,6 +28,10 @@
 .btc-r1 b { font-weight: 800; font-variant-numeric: tabular-nums; }
 .pos { color: #3fcf6b; } .neg { color: #ff5b6b; }
 .btc-det { font-size: 11px; color: #96a0ad; margin-top: 6px; line-height: 1.5; }
+#btc-chart-tabs { display: flex; gap: 6px; margin-bottom: 6px; }
+.btc-tab { font-size: 11px; font-weight: 700; padding: 3px 12px; border-radius: 7px; background: #10151d; border: 1px solid #1b232e; color: #8b95a3; cursor: pointer; }
+.btc-tab.active { background: #1a2a3f; border-color: #2d4a6b; color: #cfe3ff; }
+#btc-chart { width: 100%; height: 150px; margin-bottom: 9px; border: 1px solid #1b232e; border-radius: 10px; overflow: hidden; }
 #btc-stats { margin-bottom: 9px; }
 .btc-strow { display: flex; gap: 6px; }
 .btc-strow span { flex: 1; background: #10151d; border: 1px solid #1b232e; border-radius: 8px; padding: 6px 3px; text-align: center; font-size: 8.5px; color: #8b95a3; text-transform: uppercase; letter-spacing: .3px; }

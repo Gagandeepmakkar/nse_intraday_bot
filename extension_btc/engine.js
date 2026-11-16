@@ -72,7 +72,8 @@
     const pnl = d.pos ? d.pos * (px / d.entry - 1) * 100 : 0;
     const t1 = d.pos ? d.entry + d.pos * 2 * d.risk0 : null;
     const t2 = d.pos ? d.entry + d.pos * 3 * d.risk0 : null;
-    return { sym: k, interval, px, pnl, source, t1, t2, ...d };
+    const bars = candles.slice(-60).map(b => ({ t: Math.floor(b.t / 1000), o: b.o, h: b.h, l: b.l, c: b.c }));
+    return { sym: k, interval, px, pnl, source, t1, t2, bars, ...d };
   }
   root.BTCEngine = { fetchData, donchian, state };
 })(typeof self !== "undefined" ? self : this);

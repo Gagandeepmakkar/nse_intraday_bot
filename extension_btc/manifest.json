@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "BTC/ETH Trend — Donchian (TradingView)",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "24/7 BTC & ETH trend panel on TradingView using the daily Donchian-20 breakout + ATR trailing stop — the one systematic edge that backtested positive and survived costs over 8 years. Reads free Binance data. Shows HOLD / ENTER / EXIT with exact levels + phone alerts on trend changes. Patient trend-following, not intraday. Manual execution only.",
   "action": { "default_popup": "popup.html", "default_title": "BTC/ETH Trend" },
   "permissions": ["storage", "alarms"],
@@ -10,7 +10,7 @@
   "content_scripts": [
     {
       "matches": ["https://www.tradingview.com/*", "https://in.tradingview.com/*"],
-      "js": ["content.js"],
+      "js": ["lib/lwc.js", "content.js"],
       "css": ["content.css"],
       "run_at": "document_idle"
     }
