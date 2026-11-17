@@ -40,6 +40,20 @@ def load():
     return rows
 
 
+def dedup(items):
+    """Collapse the extension's repeated re-logs of the SAME call into one. A distinct call
+    is (sym, side, entry); the extension re-fires the same signal/close every scan tick, so
+    without this the stats are inflated many-fold. Keep the first occurrence."""
+    seen, out = set(), []
+    for it in items:
+        k = (it.get("sym"), it.get("side"), round(it.get("entry") or 0, 2))
+        if k in seen:
+            continue
+        seen.add(k)
+        out.append(it)
+    return out
+
+
 def stats(closes):
     n = len(closes)
     if not n:
@@ -120,16 +134,29 @@ def ai_summary(findings):
 
 def main():
     rows = load()
-    closes = [r for r in rows if r.get("event") == "close"]
-    signals = [r for r in rows if r.get("event") == "signal"]
+    closes = dedup([r for r in rows if r.get("event") == "close"])
+    signals = dedup([r for r in rows if r.get("event") == "signal"])
     s = stats(closes)
 
     out = [f"# 🔍 System audit — {datetime.now():%d %b %Y, %H:%M}",
-           f"Recorded: {len(signals)} signals, {len(closes)} closed trades.\n"]
+           f"Recorded: {len(signals)} unique calls, {len(closes)} closed (deduped — the extension re-logs each call every tick).\n"]
     if s:
         out.append(f"**Overall:** {s['tot']:+.2f}R total · exp {s['exp']:+.2f}R/trade · "
                    f"win {s['wr']*100:.0f}% ({s['wins']}/{s['losses']}) · PF {s['pf']:.2f} · maxDD {s['mdd']:.1f}R")
     out.append("")
+    # Per-call ledger — every call the system made and its paper P&L, so you don't have to
+    # buy/sell on paper yourself. Open calls (signalled, no outcome yet) are listed too.
+    closed_keys = {(c.get("sym"), c.get("side"), round(c.get("entry") or 0, 2)) for c in closes}
+    run = 0.0
+    out.append("**📒 Call ledger (paper P&L, deduped):**")
+    for c in closes:
+        run += c.get("R", 0)
+        out.append(f"- {c.get('sym') or '(blank)':<11} {c.get('side'):<5} @ {c.get('entry')} → {c.get('exit')}  {c.get('R', 0):+.2f}R  (cum {run:+.2f}R)")
+    opens = [sg for sg in signals if (sg.get("sym"), sg.get("side"), round(sg.get("entry") or 0, 2)) not in closed_keys]
+    for o in opens:
+        out.append(f"- {o.get('sym') or '(blank)':<11} {o.get('side'):<5} @ {o.get('entry')} → OPEN (no outcome yet)")
+    out.append("")
+
     fl = flags(closes, signals)
     out.append("**Findings (computed from real outcomes):**")
     out += [f"- {f}" for f in fl]
