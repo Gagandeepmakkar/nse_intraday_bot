@@ -32,6 +32,11 @@ var int   pos   = 0        // 1 long, -1 short, 0 flat
 var float entry = na
 var float stop  = na       // the trailing stop (the ACTUAL exit)
 var float risk0 = na       // initial risk at entry, for R-based target
+// retained across the exit (not cleared) so a CLOSED trade can be drawn with its result
+var float lastEntry = na
+var int   lastEntryBar = na
+var int   lastDir = 0
+var float lastRisk = na
 int posPrev = pos
 
 if pos == 0
@@ -40,11 +45,19 @@ if pos == 0
         entry := close
         stop  := hh - atrMult * a
         risk0 := math.max(math.abs(entry - stop), a)
+        lastEntry := close
+        lastEntryBar := bar_index
+        lastDir := 1
+        lastRisk := risk0
     else if allowShort and close < lower
         pos   := -1
         entry := close
         stop  := ll + atrMult * a
         risk0 := math.max(math.abs(entry - stop), a)
+        lastEntry := close
+        lastEntryBar := bar_index
+        lastDir := -1
+        lastRisk := risk0
 else if pos == 1
     stop := math.max(stop, hh - atrMult * a)    // Chandelier trail ratchets up only
     if close < stop
@@ -98,6 +111,17 @@ bgcolor(pos == 1 ? color.new(color.green, 90) : pos == -1 ? color.new(color.red,
 plotshape(enterLong,  "Enter long",  shape.triangleup,   location.belowbar, color.new(color.green, 0), text="LONG",  size=size.small)
 plotshape(enterShort, "Enter short", shape.triangledown, location.abovebar, color.new(color.red, 0),   text="SHORT", size=size.small)
 plotshape(exitTrade,  "Exit",        shape.xcross,       location.abovebar, color.new(color.gray, 0),  text="EXIT",  size=size.tiny)
+
+// Persist the CLOSED trade so it never silently vanishes: a line from entry->exit and a
+// result label (% and R). The trailing stop moves up, so exits often happen BETWEEN the
+// original stop and target — this makes that visible instead of the lines just disappearing.
+if exitTrade and not na(lastEntry)
+    won  = lastDir * (close - lastEntry) > 0
+    xcol = won ? color.new(color.lime, 0) : color.new(color.red, 0)
+    line.new(lastEntryBar, lastEntry, bar_index, close, color=xcol, width=2, style=line.style_dashed)
+    rr   = not na(lastRisk) and lastRisk != 0 ? lastDir * (close - lastEntry) / lastRisk : na
+    pctC = lastDir * (close / lastEntry - 1) * 100
+    label.new(bar_index, close, (lastDir == 1 ? "L" : "S") + " closed " + str.tostring(pctC, "#.0") + "% (" + str.tostring(rr, "#.0#") + "R) · trail hit", color=xcol, style=label.style_label_up, textcolor=color.white, size=size.tiny)
 
 // ------------------------------------------------------------------ right-edge labels (clarity)
 var label lE = na
