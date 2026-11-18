@@ -73,7 +73,7 @@ def _setup_backtest(m5, side, atr):
             continue
         opening = g.head(3)
         hi, lo = float(opening["high"].max()), float(opening["low"].min())
-        a = ind.atr(g) or atr
+        a = ind.atr(g.head(3)) or atr   # ATR from bars available AT entry (no look-ahead)
         # Test the SAME setup we recommend live: breakout entry, ATR-based stop/targets.
         if side == "LONG":
             entry, stop = hi, hi - 1.2 * a
@@ -210,7 +210,11 @@ def analyze(symbol, side_hint=""):
     if levels:
         try:
             import timemachine
-            r = timemachine.timemachine(sym, side, levels["entry"], levels["stop"], levels["target1"])
+            # Enter at the CURRENT time-of-day bar, not bar 3 — otherwise the MC replays a
+            # full session for a 2pm entry and overstates "target-first" odds.
+            cur = timemachine._slot(m5["date"].iloc[-1])
+            eb = cur if cur is not None else timemachine.OR_BARS
+            r = timemachine.timemachine(sym, side, levels["entry"], levels["stop"], levels["target1"], entry_bar=eb)
             if "montecarlo" in r:
                 tm = {"mc": r["montecarlo"], "history": r["history"], "verdict": r["verdict"]}
         except Exception:
@@ -228,7 +232,7 @@ def analyze(symbol, side_hint=""):
             "structural_levels": struct,
             "setup_backtest": {"sessions": trades, "wins": wins,
                                "win_rate_pct": round(win_rate, 1),
-                               "expectancy_rs_per_10qty": round(expectancy, 1)},
+                               "expectancy_rs_per_trade": round(expectancy, 1)},
             "checks_passed": f"{passed}/{len(checks)}",
             "checks": checks,
         },

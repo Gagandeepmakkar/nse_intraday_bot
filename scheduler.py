@@ -41,7 +41,14 @@ def main():
             for t in times:
                 if t not in done and hhmm >= t:
                     print(f"[{now:%Y-%m-%d %H:%M IST}] running {t} slot…", flush=True)
-                    subprocess.run(["/bin/bash", RUNNER], cwd=HERE)
+                    try:
+                        # timeout so a hung HTTP fetch can't freeze the scheduler and
+                        # starve later slots; log a non-zero exit instead of swallowing it.
+                        cp = subprocess.run(["/bin/bash", RUNNER], cwd=HERE, timeout=1200)
+                        if cp.returncode:
+                            print(f"[{now:%H:%M IST}] {t} slot exited {cp.returncode}", flush=True)
+                    except subprocess.TimeoutExpired:
+                        print(f"[{now:%H:%M IST}] {t} slot TIMED OUT (killed after 20m)", flush=True)
                     done.add(t)
         time.sleep(30)
 

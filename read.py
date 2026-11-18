@@ -59,8 +59,8 @@ def read(symbol):
     liq_txt = f"₹{liq.get('turnover_cr_today','?')}cr today · RVOL {liq.get('rvol','?')}"
     out.append("Liquidity: " + liq_txt + ("  ⚠ THIN — hard to fill at size" if thin else "  — OK"))
     if sb.get("sessions"):
-        out.append(f"Recent ORB setup ({sb['sessions']} sessions): win {sb['win_rate_pct']}% · exp {sb['expectancy_rs_per_10qty']}/10qty"
-                   + ("  ← poor odds" if sb.get('expectancy_rs_per_10qty', 0) <= 0 else "  ← positive"))
+        out.append(f"Recent ORB setup ({sb['sessions']} sessions): win {sb['win_rate_pct']}% · exp ₹{sb['expectancy_rs_per_trade']}/trade"
+                   + ("  ← poor odds" if sb.get('expectancy_rs_per_trade', 0) <= 0 else "  ← positive"))
 
     out.append("\nLevels (▲ resistance / ▼ support):")
     out.append(_ladder_view(ladder, price, sup_p, res_p))

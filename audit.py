@@ -86,7 +86,11 @@ def flags(closes, signals):
     if not s:
         return ["No closed trades recorded yet — nothing to audit. Keep paper-trading; "
                 "make sure serve_picks.py is running so the extension can log outcomes."]
-    unresolved = len(signals) - len(closes)
+    # Count opens the SAME way the ledger does (key match), not by naive subtraction —
+    # an orphan close with no matching signal otherwise skews the count.
+    closed_keys = {(c.get("sym"), c.get("side"), round(c.get("entry") or 0, 2)) for c in closes}
+    unresolved = sum(1 for sg in signals
+                     if (sg.get("sym"), sg.get("side"), round(sg.get("entry") or 0, 2)) not in closed_keys)
     if unresolved > 0:
         out.append(f"{unresolved} signal(s) fired without a recorded outcome (still open or not logged).")
     if s["n"] < 15:
@@ -102,7 +106,7 @@ def flags(closes, signals):
     for side, ss in by(closes, lambda c: c.get("side")).items():
         if ss and ss["n"] >= 8 and ss["exp"] < 0:
             out.append(f"{side} trades are net-negative (exp {ss['exp']:+.2f}R, n={ss['n']}) → consider disabling {side}.")
-    for hr, hs in sorted(by(closes, lambda c: datetime.fromtimestamp(c.get("t", 0) / 1000).strftime("%H:00")).items()):
+    for hr, hs in sorted(by(closes, lambda c: datetime.fromtimestamp((c.get("t") or 0) / 1000).strftime("%H:00")).items()):
         if hs and hs["n"] >= 6 and hs["exp"] < -0.2:
             out.append(f"{hr} window is net-negative (exp {hs['exp']:+.2f}R, n={hs['n']}) → avoid trading that hour.")
     for st, ts in by(closes, lambda c: c.get("strat", "?")).items():
@@ -140,6 +144,13 @@ def main():
 
     out = [f"# 🔍 System audit — {datetime.now():%d %b %Y, %H:%M}",
            f"Recorded: {len(signals)} unique calls, {len(closes)} closed (deduped — the extension re-logs each call every tick).\n"]
+    # Staleness guard: under SWING_ONLY the extension no longer logs intraday trades, so
+    # this journal freezes. Flag it so a daily cron re-send isn't mistaken for current.
+    newest = max((r.get("logged_at", "") for r in rows), default="")
+    if newest and newest[:10] < datetime.now().strftime("%Y-%m-%d"):
+        out.append(f"⚠️ STALE — no new intraday trades since {newest[:10]} (the extension's intraday "
+                   f"engine is OFF under SWING_ONLY). This grades the OLD log; the live swing engine "
+                   f"is graded by swing_audit.py.\n")
     if s:
         out.append(f"**Overall:** {s['tot']:+.2f}R total · exp {s['exp']:+.2f}R/trade · "
                    f"win {s['wr']*100:.0f}% ({s['wins']}/{s['losses']}) · PF {s['pf']:.2f} · maxDD {s['mdd']:.1f}R")
@@ -151,10 +162,10 @@ def main():
     out.append("**📒 Call ledger (paper P&L, deduped):**")
     for c in closes:
         run += c.get("R", 0)
-        out.append(f"- {c.get('sym') or '(blank)':<11} {c.get('side'):<5} @ {c.get('entry')} → {c.get('exit')}  {c.get('R', 0):+.2f}R  (cum {run:+.2f}R)")
+        out.append(f"- {c.get('sym') or '(blank)':<11} {(c.get('side') or '?'):<5} @ {c.get('entry')} → {c.get('exit')}  {c.get('R', 0):+.2f}R  (cum {run:+.2f}R)")
     opens = [sg for sg in signals if (sg.get("sym"), sg.get("side"), round(sg.get("entry") or 0, 2)) not in closed_keys]
     for o in opens:
-        out.append(f"- {o.get('sym') or '(blank)':<11} {o.get('side'):<5} @ {o.get('entry')} → OPEN (no outcome yet)")
+        out.append(f"- {o.get('sym') or '(blank)':<11} {(o.get('side') or '?'):<5} @ {o.get('entry')} → OPEN (no outcome yet)")
     out.append("")
 
     fl = flags(closes, signals)
