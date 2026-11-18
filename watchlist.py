@@ -131,7 +131,7 @@ def build(mode):
         if not a or not a.get("material"):
             continue
         d = str(a.get("direction", "neutral")).lower()
-        tier = int(a["tier"]) if str(a.get("tier", "3")).isdigit() else 3
+        tier = int(a.get("tier", 3)) if str(a.get("tier", 3)).isdigit() else 3
         # rank: impact tier dominates (1>2>3), then a clear direction, then a confirming gap.
         rank = (4 - tier) * 10 + (5 if d in ("up", "down") else 0) + (4 if sym in gaps else 0)
         scored.append({"symbol": sym, "catalyst": desc, "ai_reason": a.get("reason", ""),

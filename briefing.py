@@ -40,6 +40,7 @@ except Exception:
 
 import indicators
 import oi
+from datasource import TZ
 
 # Crude sentiment lexicon — intentionally small and transparent. Not a model.
 POS = {"surge", "jump", "rally", "gain", "gains", "profit", "beat", "beats", "upgrade",
@@ -90,7 +91,16 @@ def fetch_filings(symbol):
         from datasource import NSESource
         anns = NSESource().announcements(days=2)
         rows = anns.get(symbol) or anns.get(symbol.upper()) or []
-        return [r.get("subject", "").strip() for r in rows][:4]
+        # announcements() rows have "desc" + "text" (no "subject"); use desc, and append
+        # a snippet of the filing text when present.
+        out = []
+        for r in rows[:4]:
+            desc = (r.get("desc") or "").strip()
+            text = (r.get("text") or "").strip()
+            line = desc + (f" — {text[:80]}" if text else "")
+            if line.strip():
+                out.append(line)
+        return out
     except Exception:
         return []
 
@@ -217,7 +227,7 @@ def main():
     env_syms = [s.strip().upper() for s in os.getenv("BRIEF_SYMBOLS", "").split(",") if s.strip()]
     symbols = [s.upper() for s in args] or env_syms or ["RELIANCE"]
 
-    header = f"# 📊 Pre-market briefing — {datetime.now():%d %b %Y, %H:%M}\n"
+    header = f"# 📊 Pre-market briefing — {datetime.now(TZ):%d %b %Y, %H:%M}\n"
     body = header + "\n".join(analyse(s) for s in symbols)
     footer = ("\n---\n_Decision support only — not a prediction or signal. News/sentiment "
               "is a rough tilt, usually already priced in. Know your levels, size with VIM, "
