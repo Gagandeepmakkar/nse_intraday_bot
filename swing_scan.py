@@ -154,7 +154,8 @@ def _persist(res):
         trig = lv.get("trigger")  # conditional (pullback/breakout) -> wait for the level
         setups.append({"symbol": r["symbol"], "side": r["side"], "entry": lv.get("entry"),
                        "stop": lv.get("stop"), "t1": lv.get("target1"), "t2": lv.get("target2"),
-                       "buy_zone": trig, "status": "watch" if trig else "active"})
+                       "buy_zone": trig, "setup": lv.get("setup"),
+                       "status": "watch" if trig else "active"})
     try:
         json.dump({"date": datetime.now(TZ).strftime("%Y-%m-%d"), "setups": setups},
                   open("swing_watch.json", "w"))
@@ -180,9 +181,26 @@ def _persist(res):
                 f.write(json.dumps({"date": today, "symbol": r["symbol"], "side": r["side"],
                                     "entry": lv.get("entry"), "trigger": lv.get("trigger"),
                                     "stop": lv.get("stop"), "t1": lv.get("target1"),
-                                    "t2": lv.get("target2"), "eta": lv.get("eta_days")}) + "\n")
+                                    "t2": lv.get("target2"), "setup": lv.get("setup"),
+                                    "eta": lv.get("eta_days")}) + "\n")
     except Exception:
         pass
+
+
+def _trading_day_ok():
+    """True if today is an NSE trading day — so weekend/holiday cron runs don't append
+    phantom (and double-counted) calls to the ledger. Uses NSE market-state; falls back
+    to a weekday check if NSE is unreachable."""
+    try:
+        from datasource import NSESource
+        st = NSESource().market_state().lower()
+        if "close" in st:
+            return False
+        if st:  # 'open' / 'pre-open'
+            return True
+    except Exception:
+        pass
+    return datetime.now(TZ).weekday() < 5
 
 
 def main():
@@ -193,7 +211,10 @@ def main():
     res = scan(limit=limit)
     text = report(res)
     print(text)
-    _persist(res)
+    if _trading_day_ok():
+        _persist(res)
+    else:
+        print("(not a trading day — ledger/watch not updated)", file=sys.stderr)
     push(text, res)
 
 

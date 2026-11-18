@@ -647,11 +647,17 @@ class UpstoxSource:
 
     def historical(self, token, start, end, interval):
         mins = "".join(ch for ch in str(interval) if ch.isdigit()) or "5"
-        today = datetime.now(TZ).strftime("%Y-%m-%d")
-        # prior days (historical) + today (intraday); intraday only for minute intervals.
-        hist = self._get(f"{self.V3}/historical-candle/{token}/minutes/{mins}/"
-                         f"{today}/{start.strftime('%Y-%m-%d')}").get("candles") or []
-        intr = self._get(f"{self.V3}/historical-candle/intraday/{token}/minutes/{mins}").get("candles") or []
+        now = datetime.now(TZ)
+        today = now.strftime("%Y-%m-%d")
+        # Honour the requested window (don't silently fetch to "now" — that leaks future
+        # bars in any point-in-time/replay use). Guard None start/end.
+        to = (end or now).strftime("%Y-%m-%d")
+        frm = (start or (now - timedelta(days=self.lookback_days))).strftime("%Y-%m-%d")
+        hist = self._get(f"{self.V3}/historical-candle/{token}/minutes/{mins}/{to}/{frm}").get("candles") or []
+        # today's forming bars only when the requested window actually reaches today.
+        intr = []
+        if to >= today:
+            intr = self._get(f"{self.V3}/historical-candle/intraday/{token}/minutes/{mins}").get("candles") or []
         rows = self._rows(hist) + self._rows(intr)
         # de-dup by timestamp (historical may already include part of today), keep ascending.
         seen, dedup = set(), []

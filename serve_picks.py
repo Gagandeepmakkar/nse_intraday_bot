@@ -133,7 +133,13 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
 
     def do_OPTIONS(self):
-        self._send(204)
+        # Full CORS preflight: the extension POSTs /log and /status with a JSON
+        # Content-Type, which triggers a real preflight that needs these headers.
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.end_headers()
 
     def do_POST(self):
         parsed = urlparse(self.path)

@@ -61,9 +61,19 @@ def _event(su, price):
     stop, t1, t2 = su.get("stop"), su.get("t1"), su.get("t2")
     if st == "watch":
         bz = su.get("buy_zone")
-        if bz and ((long and price <= bz * 1.005) or (not long and price >= bz * 0.995)):
-            return "active", (f"🎯 BUY ZONE {su['symbol']} @₹{price} — plan: {side} near ₹{bz}, "
-                              f"stop ₹{stop}, T1 ₹{t1}")
+        # Trigger direction depends on setup, not just side: a breakout LONG trigger is
+        # ABOVE price (fire when price rises TO it); a pullback LONG trigger is BELOW
+        # price (fire when price falls TO it). Breakdown/bounce mirror for shorts.
+        setup = (su.get("setup") or "").lower()
+        breakout = setup.startswith("breakout") or setup.startswith("breakdown")
+        if bz:
+            if breakout:
+                fire = (price >= bz * 0.995) if long else (price <= bz * 1.005)
+            else:
+                fire = (price <= bz * 1.005) if long else (price >= bz * 0.995)
+            if fire:
+                return "active", (f"🎯 {'BREAK' if breakout else 'BUY ZONE'} {su['symbol']} @₹{price} — "
+                                  f"{side} near ₹{bz}, stop ₹{stop}, T1 ₹{t1}")
         return None, None
     if st in ("active", "t1"):
         if (long and price <= stop) or (not long and price >= stop):
@@ -91,6 +101,10 @@ def run(do_push=False):
     if not os.path.exists(STATE):
         return ["no swing_watch.json — run swing_scan first"]
     data = json.load(open(STATE))
+    today = datetime.now(TZ).strftime("%Y-%m-%d")
+    if data.get("date") != today:
+        return [f"swing_watch.json is stale (dated {data.get('date')}, today {today}) — "
+                f"this morning's scan didn't write it; not watching."]
     live = [s for s in data.get("setups", []) if s.get("status") != "done"]
     if not live:
         return ["no active setups to watch"]

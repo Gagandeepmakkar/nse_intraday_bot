@@ -67,11 +67,18 @@ def _grade(e):
         return None
     win_R = round(abs(t1 - entry) / risk, 2)
     # Conditional order: only fills if price reached the trigger. If it never did,
-    # it was never a trade (NOFILL), so it must not count as a win or a loss.
+    # it was never a trade (NOFILL), so it must not count as a win or a loss. The fill
+    # direction depends on setup: breakout/breakdown triggers sit on the momentum side
+    # (price rises/falls INTO them), pullback/bounce on the near side.
+    setup = (e.get("setup") or "").lower()
+    breakout = setup.startswith("breakout") or setup.startswith("breakdown")
     start = 0
     if trig is not None:
-        hit = next((i for i, (_, d) in enumerate(rows)
-                    if (long and d["low"] <= trig) or (not long and d["high"] >= trig)), None)
+        def _filled(d):
+            if breakout:
+                return (d["high"] >= trig) if long else (d["low"] <= trig)
+            return (d["low"] <= trig) if long else (d["high"] >= trig)
+        hit = next((i for i, (_, d) in enumerate(rows) if _filled(d)), None)
         if hit is None:
             return {"result": "NOFILL", "R": 0.0, "days": len(rows),
                     "on": str(df["date"].iloc[-1].date())}

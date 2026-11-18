@@ -124,7 +124,9 @@ if __name__ == "__main__":
         if not w:
             print(f"{s}: no option data (not in F&O?)")
             continue
+        def _oi(v):
+            return f"{v:,.0f}" if v else "—"
         print(f"{w['symbol']}  spot ₹{w['spot']}  exp {w['expiry']}  PCR {w['pcr']}")
-        print(f"  resistance (call wall): ₹{w['call_wall']}  OI {w['call_wall_oi']:,.0f}")
-        print(f"  support   (put wall):   ₹{w['put_wall']}  OI {w['put_wall_oi']:,.0f}")
+        print(f"  resistance (call wall): ₹{w['call_wall']}  OI {_oi(w['call_wall_oi'])}")
+        print(f"  support   (put wall):   ₹{w['put_wall']}  OI {_oi(w['put_wall_oi'])}")
         print(f"  max pain: ₹{w['max_pain']}")

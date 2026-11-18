@@ -474,19 +474,33 @@
     }
     const sv = (SWING_ONLY && S.swing && S.swing.score != null) ? S.swing.score : (d.score != null ? d.score : 0);
     $("vim-scoretext").textContent = sv;
-    const fill = $("vim-scorefill"); fill.style.width = Math.min(100, sv) + "%"; fill.className = sv >= (CFG.minScore || 60) ? "hi" : sv >= 40 ? "mid" : "";
-    $("vim-reason").textContent = S.phase !== 0 ? ("In trade @ " + S.entry.toFixed(2) + " · " + S.shares + " sh" + (S.t1done ? " · +1/3 booked, stop at breakeven" : "")) : (d.note || ("trend " + (d.trend || "?")));
-    $("vim-factors").innerHTML = (S.phase === 0 && d.factors) ? fchips(d.factors) : "";
-    const row = (k, v, c) => `<div class="vim-lv ${c}"><div class="k">${k}</div><div class="v">₹${Number(v).toFixed(2)}</div></div>`;
-    const lv = $("vim-levels");
-    lv.innerHTML = S.phase !== 0 ? [row("Entry", S.entry, "en"), row("SL", S.stop, "sl"), row("T1", S.t1, "t1"), row("T2", S.t2, "t2")].join("")
-      : (d.levels ? [row("Entry", d.levels.entry, "en"), row("SL", d.levels.stop, "sl"), row("T1", d.levels.target1, "t1"), row("T2", d.levels.target2, "t2")].join("") : "");
-    const nx = d.news ? ` · News <b class="${d.news === "bullish" ? "pos" : d.news === "bearish" ? "neg" : ""}">${d.news}${(d.warn || d.eventRisk) ? " ⚠" : ""}</b>` : "";
-    const cx = d.catalystBias ? ` · 🎯 Catalyst <b class="${d.catalystBias === "UP" ? "pos" : "neg"}">${d.catalystBias}</b>` : "";
-    // Options OI walls (free Upstox): call wall = resistance (red), put wall = support (green).
+    const fill = $("vim-scorefill"); fill.style.width = Math.min(100, sv) + "%";
+    fill.className = sv >= (SWING_ONLY ? 60 : (CFG.minScore || 60)) ? "hi" : sv >= 40 ? "mid" : "";
+    const row = (k, v, c) => (v == null ? "" : `<div class="vim-lv ${c}"><div class="k">${k}</div><div class="v">₹${Number(v).toFixed(2)}</div></div>`);
     const ox = (S.oi && S.oi.call_wall && S.oi.put_wall)
       ? ` · OI <b class="neg">R ₹${Math.round(S.oi.call_wall)}</b>/<b class="pos">S ₹${Math.round(S.oi.put_wall)}</b> PCR ${S.oi.pcr}` : "";
-    $("vim-meta").innerHTML = `Trend <b>${d.regime || d.trend || "?"}</b> · ADX <b>${d.adx != null ? d.adx : "?"}</b> · RSI <b>${d.rsi != null ? d.rsi : "?"}</b> · Size <b>${S.shares}</b> sh${nx}${cx}${ox}`;
+    if (SWING_ONLY) {
+      // One engine: reason / levels / meta all come from the swing call, never the
+      // disabled intraday `d` — so nothing on the panel contradicts the swing box.
+      const sw = S.swing, slv = sw && sw.levels, ev = (sw && sw.evidence) || {};
+      $("vim-reason").textContent = sw ? (sw.note || "") : "loading daily swing call…";
+      $("vim-factors").innerHTML = "";
+      $("vim-levels").innerHTML = slv
+        ? [row(slv.trigger != null ? "Order" : "Entry", slv.trigger != null ? slv.trigger : slv.entry, "en"),
+           row("SL", slv.stop, "sl"), row("T1", slv.target1, "t1"), row("T2", slv.target2, "t2")].join("")
+        : "";
+      const rs = ev.rel_strength_vs_nifty_pct;
+      $("vim-meta").innerHTML = "Trend <b>" + (ev.trend || "?") + "</b> · RSI <b>" + (ev.rsi != null ? ev.rsi : "?") +
+        "</b> · RS <b>" + (rs != null ? (rs > 0 ? "+" : "") + rs + "%" : "?") + "</b> · R:R <b>" + (slv ? slv.rr : "?") + "</b>" + ox;
+    } else {
+      $("vim-reason").textContent = S.phase !== 0 ? ("In trade @ " + S.entry.toFixed(2) + " · " + S.shares + " sh" + (S.t1done ? " · +1/3 booked, stop at breakeven" : "")) : (d.note || ("trend " + (d.trend || "?")));
+      $("vim-factors").innerHTML = (S.phase === 0 && d.factors) ? fchips(d.factors) : "";
+      $("vim-levels").innerHTML = S.phase !== 0 ? [row("Entry", S.entry, "en"), row("SL", S.stop, "sl"), row("T1", S.t1, "t1"), row("T2", S.t2, "t2")].join("")
+        : (d.levels ? [row("Entry", d.levels.entry, "en"), row("SL", d.levels.stop, "sl"), row("T1", d.levels.target1, "t1"), row("T2", d.levels.target2, "t2")].join("") : "");
+      const nx = d.news ? ` · News <b class="${d.news === "bullish" ? "pos" : d.news === "bearish" ? "neg" : ""}">${d.news}${(d.warn || d.eventRisk) ? " ⚠" : ""}</b>` : "";
+      const cx = d.catalystBias ? ` · 🎯 Catalyst <b class="${d.catalystBias === "UP" ? "pos" : "neg"}">${d.catalystBias}</b>` : "";
+      $("vim-meta").innerHTML = `Trend <b>${d.regime || d.trend || "?"}</b> · ADX <b>${d.adx != null ? d.adx : "?"}</b> · RSI <b>${d.rsi != null ? d.rsi : "?"}</b> · Size <b>${S.shares}</b> sh${nx}${cx}${ox}`;
+    }
     renderSwing();  // keep the authoritative daily-swing call painted each tick
     ensureChart();
     if (S.series && candles.length) { S.series.setData(candles.map((c) => ({ time: c.t + IST, open: c.o, high: c.h, low: c.l, close: c.c }))); drawLevels(); S.chart.timeScale().fitContent(); }

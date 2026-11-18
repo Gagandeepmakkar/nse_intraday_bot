@@ -235,7 +235,7 @@ def score(symbol, catalyst=None, fast=False):
             ]
         return [
             ("momentum", price, None, round(min(r1 + 0.3 * atr, price + 2.5 * atr), 2), s1, s2, s1lab),
-            ("bounce to " + r1lab, r1, r1, round(min(s2 + 0.3 * atr, r1 + 1.0 * atr), 2), s1, s2, s1lab)
+            ("bounce to " + r1lab, r1, r1, round(min(r2 + 0.3 * atr, r1 + 1.0 * atr), 2), s1, s2, s1lab)
             if r1 > price else None,
             ("breakdown " + s1lab, round(s1 - 0.1 * atr, 2), s1, round(min(price + 0.5 * atr, s1 + 1.2 * atr), 2),
              s2, round(s2 - 2 * atr, 2), "next sup"),

@@ -26,7 +26,7 @@ LOG="cron.log"
     python swing_scan.py --ntfy --email || echo "swing_scan failed"
   fi
   # Pre-market briefing (~09:12): deep read on your BRIEF_SYMBOLS.
-  if [ "$HM" -ge 911 ] && [ "$HM" -lt 915 ]; then
+  if [ "$HM" -ge 911 ] && [ "$HM" -lt 930 ]; then
     python briefing.py --ntfy --email || echo "briefing.py exited non-zero"
   fi
   python bot.py || echo "bot.py exited non-zero"
@@ -43,7 +43,7 @@ LOG="cron.log"
     python swing_watch.py --ntfy || echo "swing_watch.py exited non-zero"
   fi
   # After market close: self-audit the recorded signals/outcomes and send the report.
-  if [ "$HM" -ge 1535 ]; then
+  if [ "$HM" -ge 1535 ] && [ "$HM" -lt 1600 ]; then
     python audit.py --ntfy --email || echo "audit.py exited non-zero"
     # Auto-grade every swing call against real prices (did it hit target/stop,
     # expected vs actual days) — the honesty layer for the swing engine.
