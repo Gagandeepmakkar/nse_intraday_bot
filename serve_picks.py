@@ -13,6 +13,7 @@ from urllib.parse import urlparse, parse_qs
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import analyze as analyzer
+import oi as oimod
 
 DB = "signals.db"
 PORT = 8787
@@ -181,6 +182,19 @@ class Handler(BaseHTTPRequestHandler):
                 res = analyzer.analyze(sym, side)
             except Exception as e:
                 res = {"symbol": sym, "action": "WAIT", "error": str(e), "evidence": {}}
+            self._send(200, json.dumps(res).encode())
+        elif parsed.path.startswith("/oi"):
+            # Fast option-wall lookup for the extension panel (free Upstox). null if
+            # no token / not an F&O name. Much lighter than /analyze (no backtest).
+            q = parse_qs(parsed.query)
+            sym = (q.get("symbol") or [""])[0].strip().upper()
+            if not sym:
+                self._send(400, b'{"error":"symbol required"}')
+                return
+            try:
+                res = oimod.walls(sym)
+            except Exception as e:
+                res = {"error": str(e)}
             self._send(200, json.dumps(res).encode())
         else:
             self._send(404, b'{"error":"not found"}')

@@ -25,6 +25,7 @@ try:
 except Exception:
     pass
 
+import oi
 from datasource import NSESource, TZ
 
 
@@ -80,7 +81,14 @@ def format_report(state, picks):
     for i, p in enumerate(picks, 1):
         arrow = "▲" if p["side"] == "LONG" else "▼"
         cat = f" · {p['catalyst']}" if p["catalyst"] else ""
-        lines.append(f"{i}. {arrow} {p['symbol']}  {p['pChange']:+.1f}%  ₹{p['ltp']:,.1f}  [{p['stage']}]{cat}")
+        oitag = ""
+        try:  # OI walls (free Upstox) for F&O names; non-F&O movers get no tag
+            w = oi.walls(p["symbol"])
+            if w and w.get("call_wall") and w.get("put_wall"):
+                oitag = f" · OI S/R ₹{w['put_wall']:.0f}/₹{w['call_wall']:.0f}"
+        except Exception:
+            pass
+        lines.append(f"{i}. {arrow} {p['symbol']}  {p['pChange']:+.1f}%  ₹{p['ltp']:,.1f}  [{p['stage']}]{cat}{oitag}")
     lines.append("")
     lines.append("_Open these in the extension; let Signals/VIM work the entry. Favour 'early'/'building' "
                  "with a catalyst; 'extended' has mostly moved. Not a prediction — paper-trade, honour the stop._")

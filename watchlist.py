@@ -32,6 +32,7 @@ except Exception:
 import pandas as pd
 import indicators
 import briefing
+import oi
 from datasource import NSESource, TZ
 
 MIN_PRICE = float(os.getenv("MOVERS_MIN_PRICE", "30"))
@@ -155,6 +156,10 @@ def build(mode):
         b += 1 if (s.get("imbalance") or 0) > 0.15 else -1 if (s.get("imbalance") or 0) < -0.15 else 0
         s["bias"] = "UP ▲" if b > 0 else "DOWN ▼" if b < 0 else "— unclear"
         s["tech"] = technicals(sym)
+        try:  # OI walls (free Upstox) — only F&O names return data; micro-caps -> None
+            s["oi"] = oi.walls(sym)
+        except Exception:
+            s["oi"] = None
         picks.append(s)
         if len(picks) >= 5:
             break
@@ -175,12 +180,17 @@ def report(mode, state, picks):
         ctx = " (" + ", ".join(bits) + ")" if bits else ""
         tier = p.get("tier")
         tg = f"  [T{tier}{'·' + p['type'] if p.get('type') else ''}]" if tier else ""
-        out.append(f"{i}. {p['symbol']}  bias {p['bias']}{ctx}{tg}")
+        w = p.get("oi")
+        has_oi = bool(w and w.get("call_wall") and w.get("put_wall"))
+        oi_tag = f" · OI S/R ₹{w['put_wall']:.0f}/₹{w['call_wall']:.0f}" if has_oi else ""
+        out.append(f"{i}. {p['symbol']}  bias {p['bias']}{ctx}{tg}{oi_tag}")
         reason = (" — " + p["ai_reason"]) if p.get("ai_reason") else ""
         out.append(f"   catalyst: {p['catalyst']}{reason}")
         t = p.get("tech") or {}
         if t:
             out.append(f"   levels: pivot ₹{t['pivot']:,.1f} · sup ₹{t['sup']:,.1f} / res ₹{t['res']:,.1f} · day range ±₹{t['atr']:,.1f} · trend {t['trend']}")
+        if has_oi:
+            out.append(f"   OI: support ₹{w['put_wall']:.0f} (put wall) / resistance ₹{w['call_wall']:.0f} (call wall) · PCR {w['pcr']} · max-pain ₹{w['max_pain']:.0f}")
         out.append("")
     out.append("_Stocks LIKELY to move with a direction bias from real signals — not a prediction. "
                "Open them in the extension, let Signals/VIM time the entry, honour the stop._")

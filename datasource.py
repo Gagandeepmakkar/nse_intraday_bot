@@ -553,6 +553,130 @@ class NSESource:
         return out
 
 
+class UpstoxSource:
+    """Free real-time NSE data via Upstox (data-only extended token UPSTOX_ACCESS_TOKEN
+    in .env). Unlike Yahoo it gives REAL-TIME quotes WITH level-2 depth + buy/sell
+    quantities (so the order-flow component works, not just neutral) and reliable 5-min
+    candles via the v3 historical API. Universe = symbols.txt; symbol->instrument_key
+    reuses oi.py's cached NSE master.
+
+    Opt-in: set SOURCE=upstox. Candles combine v3 historical (prior days) + v3 intraday
+    (today). Token is data-only — it cannot place orders, so this is read/data only.
+    """
+    BASE = "https://api.upstox.com/v2"
+    V3 = "https://api.upstox.com/v3"
+    IDX_KEY = {"NIFTY 50": "NSE_INDEX|Nifty 50", "NIFTY BANK": "NSE_INDEX|Nifty Bank"}
+
+    def __init__(self, lookback_days=5):
+        import oi
+        self._oi = oi
+        self.lookback_days = max(lookback_days, 5)
+        tok = os.getenv("UPSTOX_ACCESS_TOKEN", "").strip()
+        if not tok:
+            raise RuntimeError("Missing UPSTOX_ACCESS_TOKEN in .env (see Upstox developer apps).")
+        self._h = {"Authorization": f"Bearer {tok}", "Accept": "application/json"}
+        self.symbols = self._load_symbols()
+
+    def _load_symbols(self):
+        p = Path(os.getenv("SYMBOLS_FILE", "symbols.txt"))
+        if not p.exists():
+            raise RuntimeError("Missing symbols.txt — UpstoxSource needs it for the universe.")
+        out = [s.strip().upper() for s in p.read_text(encoding="utf-8").splitlines()
+               if s.strip() and not s.strip().startswith("#")]
+        if not out:
+            raise RuntimeError("symbols.txt has no usable symbols.")
+        return out
+
+    def _key(self, symbol):
+        return self.IDX_KEY.get(symbol) or self._oi.instrument_key(symbol)
+
+    def instruments(self, exchange="NSE"):
+        return [{"tradingsymbol": s, "instrument_token": self._key(s) or s,
+                 "segment": "NSE", "instrument_type": "EQ", "exchange": "NSE"}
+                for s in self.symbols]
+
+    def _get(self, url, params=None):
+        try:
+            r = self._h and requests.get(url, params=params, headers=self._h, timeout=20)
+            if r.status_code == 200:
+                return (r.json().get("data") or {})
+        except Exception:
+            pass
+        return {}
+
+    def quote(self, keys):
+        rev, iks = {}, []
+        for k in keys:
+            ik = self._key(k.split(":", 1)[-1])
+            if ik:
+                rev[ik] = k
+                iks.append(ik)
+        out = {}
+        for i in range(0, len(iks), 500):
+            data = self._get(self.BASE + "/market-quote/quotes",
+                             {"instrument_key": ",".join(iks[i:i + 500])})
+            for v in data.values():
+                key = rev.get(v.get("instrument_token"))
+                if not key:
+                    continue
+                ohlc = v.get("ohlc") or {}
+                # Match the pipeline's convention: ohlc.close = PREVIOUS close (for day-change).
+                prev_close = None
+                if v.get("last_price") is not None and v.get("net_change") is not None:
+                    prev_close = v["last_price"] - v["net_change"]
+                out[key] = {
+                    "last_price": v.get("last_price"), "volume": v.get("volume"),
+                    "average_price": v.get("average_price"),
+                    "ohlc": {"open": ohlc.get("open"), "high": ohlc.get("high"),
+                             "low": ohlc.get("low"), "close": prev_close if prev_close is not None else ohlc.get("close")},
+                    "buy_quantity": v.get("total_buy_quantity") or 0,
+                    "sell_quantity": v.get("total_sell_quantity") or 0,
+                    "depth": v.get("depth") or {},
+                }
+        return out
+
+    @staticmethod
+    def _rows(candles):
+        """Upstox candle = [ts, o, h, l, c, v, oi]; newest first. -> ascending Kite-shaped
+        rows with tz-naive IST dates (timestamps are already +05:30, so slice the clock)."""
+        out = []
+        for c in reversed(candles or []):
+            out.append({"date": pd.to_datetime(c[0][:19]), "open": c[1], "high": c[2],
+                        "low": c[3], "close": c[4], "volume": c[5]})
+        return out
+
+    def historical(self, token, start, end, interval):
+        mins = "".join(ch for ch in str(interval) if ch.isdigit()) or "5"
+        today = datetime.now(TZ).strftime("%Y-%m-%d")
+        # prior days (historical) + today (intraday); intraday only for minute intervals.
+        hist = self._get(f"{self.V3}/historical-candle/{token}/minutes/{mins}/"
+                         f"{today}/{start.strftime('%Y-%m-%d')}").get("candles") or []
+        intr = self._get(f"{self.V3}/historical-candle/intraday/{token}/minutes/{mins}").get("candles") or []
+        rows = self._rows(hist) + self._rows(intr)
+        # de-dup by timestamp (historical may already include part of today), keep ascending.
+        seen, dedup = set(), []
+        for r in rows:
+            if r["date"] in seen:
+                continue
+            seen.add(r["date"])
+            dedup.append(r)
+        return sorted(dedup, key=lambda r: r["date"])
+
+    def daily_trend(self, symbol):
+        token = self._key(symbol)
+        if not token:
+            return "FLAT"
+        data = self._get(f"{self.V3}/historical-candle/{token}/days/1/"
+                         f"{datetime.now(TZ).strftime('%Y-%m-%d')}/"
+                         f"{(datetime.now(TZ) - timedelta(days=120)).strftime('%Y-%m-%d')}")
+        closes = pd.Series([c[4] for c in reversed(data.get("candles") or [])])
+        if len(closes) < 25:
+            return "FLAT"
+        sma20 = closes.rolling(20).mean()
+        last, now, prev = float(closes.iloc[-1]), float(sma20.iloc[-1]), float(sma20.iloc[-5])
+        return "UP" if last > now > prev else "DOWN" if last < now < prev else "FLAT"
+
+
 class MockSource:
     """Deterministic synthetic data for offline verification.
 
@@ -657,4 +781,6 @@ def get_source(name, lookback_days=5):
         return DhanSource()
     if name in ("yahoo", "yfinance", "free"):
         return YahooSource(lookback_days)
+    if name == "upstox":
+        return UpstoxSource(lookback_days)
     return KiteSource()

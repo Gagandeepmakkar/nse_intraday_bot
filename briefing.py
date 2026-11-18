@@ -39,6 +39,7 @@ except Exception:
     pass
 
 import indicators
+import oi
 
 # Crude sentiment lexicon — intentionally small and transparent. Not a model.
 POS = {"surge", "jump", "rally", "gain", "gains", "profit", "beat", "beats", "upgrade",
@@ -185,6 +186,12 @@ def analyse(symbol):
     out.append(f"- Pivot: ₹{piv['pivot']:,.1f}  ·  CPR ₹{piv['cpr_bottom']:,.1f}–₹{piv['cpr_top']:,.1f}")
     out.append(f"- Resistance: R3 ₹{piv['cam_h3']:,.1f} · R4 ₹{piv['cam_h4']:,.1f} · 20d-high ₹{hi20:,.1f}")
     out.append(f"- Support: S3 ₹{piv['cam_l3']:,.1f} · S4 ₹{piv['cam_l4']:,.1f} · 20d-low ₹{lo20:,.1f}")
+    try:  # Options OI walls (free Upstox) — where writers sit; skipped if no F&O
+        w = oi.walls(symbol)
+    except Exception:
+        w = None
+    if w and w.get("call_wall") and w.get("put_wall"):
+        out.append(f"- Options OI: put wall ₹{w['put_wall']:,.0f} (support) · call wall ₹{w['call_wall']:,.0f} (resistance) · PCR {w['pcr']} · max-pain ₹{w['max_pain']:,.0f}")
     out.append("")
     out.append(f"**News sentiment:** {slabel}")
     if caution and str(caution).lower() not in ("none", "", "null"):

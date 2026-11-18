@@ -14,7 +14,7 @@
     url: "", auth: "", symbol: "", interval: 5,
     phase: 0, entry: 0, stop: 0, t1: 0, t2: 0, t1done: false, eScore: 0, entry0: 0, stop0: 0,
     chart: null, series: null, lines: [], ro: null, panel: null, hh: 0, ll: 0, atr0: 0,
-    price: 0, shares: 0, lastOk: 0, blocked: false, news: {}, lastBetterAt: 0, unsupported: false, movers: [], watchlist: {}, watchlistPicks: [], lastRawUrl: ""
+    price: 0, shares: 0, lastOk: 0, blocked: false, news: {}, oi: null, lastBetterAt: 0, unsupported: false, movers: [], watchlist: {}, watchlistPicks: [], lastRawUrl: ""
   };
 
   // ---- Persisted config + UI geometry ----
@@ -71,18 +71,25 @@
       S.url = d.url; if (d.auth) S.auth = d.auth;
       if (sym !== S.symbol) {
         if (S.phase !== 0) closeTrade(floatingR(), "SWITCH");
-        S.symbol = sym; S.price = 0; S.news = {}; reset(); fetchNews();
+        S.symbol = sym; S.price = 0; S.news = {}; S.oi = null; reset(); fetchNews(); fetchOI();
       }
     } else {
       // a chart we can't identify as an NSE equity — stop signalling on it
       if (S.phase !== 0) closeTrade(floatingR(), "SWITCH");
-      S.unsupported = true; S.symbol = ""; S.url = ""; S.price = 0; reset();
+      S.unsupported = true; S.symbol = ""; S.url = ""; S.price = 0; S.oi = null; reset();
     }
   });
   function fetchNews() {
     if (!S.symbol) return;
     const sym = S.symbol;
     try { chrome.runtime.sendMessage({ __news: true, symbol: sym }, (r) => { if (r && sym === S.symbol) S.news = r; }); } catch (e) {}
+  }
+  // Option-wall support/resistance for the current symbol (free Upstox, via server /oi).
+  // null for non-F&O names or if the server/token is unavailable — the panel just omits it.
+  function fetchOI() {
+    if (!S.symbol) return;
+    const sym = S.symbol;
+    try { chrome.runtime.sendMessage({ __oi: true, symbol: sym }, (r) => { if (sym === S.symbol) S.oi = (r && r.call_wall) ? r : null; }); } catch (e) {}
   }
 
   function reset() { S.phase = 0; S.t1done = false; S.eScore = 0; S.entry = S.stop = S.t1 = S.t2 = S.entry0 = S.stop0 = 0; }
@@ -436,7 +443,10 @@
       : (d.levels ? [row("Entry", d.levels.entry, "en"), row("SL", d.levels.stop, "sl"), row("T1", d.levels.target1, "t1"), row("T2", d.levels.target2, "t2")].join("") : "");
     const nx = d.news ? ` · News <b class="${d.news === "bullish" ? "pos" : d.news === "bearish" ? "neg" : ""}">${d.news}${(d.warn || d.eventRisk) ? " ⚠" : ""}</b>` : "";
     const cx = d.catalystBias ? ` · 🎯 Catalyst <b class="${d.catalystBias === "UP" ? "pos" : "neg"}">${d.catalystBias}</b>` : "";
-    $("vim-meta").innerHTML = `Trend <b>${d.regime || d.trend || "?"}</b> · ADX <b>${d.adx != null ? d.adx : "?"}</b> · RSI <b>${d.rsi != null ? d.rsi : "?"}</b> · Size <b>${S.shares}</b> sh${nx}${cx}`;
+    // Options OI walls (free Upstox): call wall = resistance (red), put wall = support (green).
+    const ox = (S.oi && S.oi.call_wall && S.oi.put_wall)
+      ? ` · OI <b class="neg">R ₹${Math.round(S.oi.call_wall)}</b>/<b class="pos">S ₹${Math.round(S.oi.put_wall)}</b> PCR ${S.oi.pcr}` : "";
+    $("vim-meta").innerHTML = `Trend <b>${d.regime || d.trend || "?"}</b> · ADX <b>${d.adx != null ? d.adx : "?"}</b> · RSI <b>${d.rsi != null ? d.rsi : "?"}</b> · Size <b>${S.shares}</b> sh${nx}${cx}${ox}`;
     ensureChart();
     if (S.series && candles.length) { S.series.setData(candles.map((c) => ({ time: c.t + IST, open: c.o, high: c.h, low: c.l, close: c.c }))); drawLevels(); S.chart.timeScale().fitContent(); }
   }

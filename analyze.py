@@ -14,6 +14,7 @@ import pandas as pd
 import yfinance as yf
 
 import indicators as ind
+import levels as lv
 from backtest import simulate_fill
 
 
@@ -96,6 +97,35 @@ def _setup_backtest(m5, side, atr):
     return n, wins, wins / n * 100, sum(nets) / n
 
 
+def _today_return_pct(df):
+    """Latest session's open->last return in %, or None."""
+    if df.empty:
+        return None
+    last_day = df["date"].iloc[-1].date()
+    today = df[df["date"].dt.date == last_day]
+    if len(today) < 2:
+        return None
+    return (float(today["close"].iloc[-1]) / float(today["open"].iloc[0]) - 1) * 100
+
+
+def _nifty_today_return_pct():
+    """NIFTY 50's open->last return today (%), for relative strength. None on error."""
+    try:
+        h = yf.Ticker("^NSEI").history(period="5d", interval="5m")
+        if h.empty:
+            return None
+        h = h.reset_index()
+        tcol = "Datetime" if "Datetime" in h.columns else h.columns[0]
+        ts = pd.to_datetime(h[tcol])
+        if getattr(ts.dt, "tz", None) is not None:
+            ts = ts.dt.tz_convert("Asia/Kolkata").dt.tz_localize(None)
+        df = pd.DataFrame({"date": ts, "open": h["Open"], "high": h["High"],
+                           "low": h["Low"], "close": h["Close"], "volume": h["Volume"]}).dropna()
+        return _today_return_pct(df)
+    except Exception:
+        return None
+
+
 def analyze(symbol, side_hint=""):
     sym = symbol.upper().strip()
     m5 = _hist(sym, "15d", "5m")
@@ -113,6 +143,20 @@ def analyze(symbol, side_hint=""):
 
     tf5 = "UP" if (ema20 > ema50 and price > vwap) else "DOWN" if (ema20 < ema50 and price < vwap) else "FLAT"
     tfd = _daily_trend(daily)
+
+    # Relative strength: is this stock outperforming NIFTY today? Traders buy the
+    # strongest stock, not just any mover. None if either return is unavailable.
+    stock_ret = _today_return_pct(m5)
+    nifty_ret = _nifty_today_return_pct()
+    rel_strength = round(stock_ret - nifty_ret, 2) if (stock_ret is not None and nifty_ret is not None) else None
+
+    # Liquidity: can you actually fill this at size? Guards the micro-cap trap where
+    # paper P&L looks great but real fills don't exist. turnover = ₹ traded so far today.
+    today = m5[m5["date"].dt.date == m5["date"].iloc[-1].date()]
+    turnover_cr = float((today["close"] * today["volume"]).sum()) / 1e7
+    rvol, rvol_sessions = ind.time_adjusted_rvol(m5)
+    liquidity = {"turnover_cr_today": round(turnover_cr, 2), "rvol": round(rvol, 2),
+                 "rvol_sessions": rvol_sessions, "thin": turnover_cr < 2.0}
 
     # Pick the side to evaluate: honor the bot's hint, else the intraday trend.
     side = (side_hint or "").upper()
@@ -145,13 +189,20 @@ def analyze(symbol, side_hint=""):
         action = "HOLD"
 
     levels = None
+    struct = None
     if action in ("BUY", "SELL"):
+        # Targets snap to real structural levels (prior-day high, CPR, round number),
+        # not arbitrary ATR distances. Stop stays ATR-based for risk sizing.
+        snap = lv.snap_targets(m5, side, price, atr)
+        struct = {"support": snap["support"], "resistance": snap["resistance"],
+                  "t1_label": snap["t1_label"], "t2_label": snap["t2_label"],
+                  "ladder": snap["ladder"]}
         if side == "LONG":
             levels = {"entry": price, "stop": price - 1.2 * atr,
-                      "target1": price + 1.5 * atr, "target2": price + 2.5 * atr}
+                      "target1": snap["target1"], "target2": snap["target2"]}
         else:
             levels = {"entry": price, "stop": price + 1.2 * atr,
-                      "target1": price - 1.5 * atr, "target2": price - 2.5 * atr}
+                      "target1": snap["target1"], "target2": snap["target2"]}
 
     # Time Machine: when there's a tradeable setup, replay the rest of the session
     # 10,000x + the real history for honest target-first/stop-first odds on T1.
@@ -172,6 +223,9 @@ def analyze(symbol, side_hint=""):
         "evidence": {
             "intraday_trend_5m": tf5, "daily_trend": tfd, "rsi": round(rsi, 1),
             "vwap": round(vwap, 2), "atr": round(atr, 2),
+            "rel_strength_vs_nifty_pct": rel_strength,
+            "liquidity": liquidity,
+            "structural_levels": struct,
             "setup_backtest": {"sessions": trades, "wins": wins,
                                "win_rate_pct": round(win_rate, 1),
                                "expectancy_rs_per_10qty": round(expectancy, 1)},

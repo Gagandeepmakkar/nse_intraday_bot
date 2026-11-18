@@ -11,3 +11,4 @@ journal.jsonl
 vim_status.json
 watchlist.json
 crypto_state.json
+.upstox_instruments.json
