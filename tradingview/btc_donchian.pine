@@ -39,39 +39,44 @@ var int   lastDir = 0
 var float lastRisk = na
 int posPrev = pos
 
-if pos == 0
-    if close > upper
-        pos   := 1
-        entry := close
-        stop  := hh - atrMult * a
-        risk0 := math.max(math.abs(entry - stop), a)
-        lastEntry := close
-        lastEntryBar := bar_index
-        lastDir := 1
-        lastRisk := risk0
-    else if allowShort and close < lower
-        pos   := -1
-        entry := close
-        stop  := ll + atrMult * a
-        risk0 := math.max(math.abs(entry - stop), a)
-        lastEntry := close
-        lastEntryBar := bar_index
-        lastDir := -1
-        lastRisk := risk0
-else if pos == 1
-    stop := math.max(stop, hh - atrMult * a)    // Chandelier trail ratchets up only
-    if close < stop
-        pos := 0
-        entry := na
-        stop := na
-        risk0 := na
-else
-    stop := math.min(stop, ll + atrMult * a)    // ratchets down only
-    if close > stop
-        pos := 0
-        entry := na
-        stop := na
-        risk0 := na
+// Commit only on the CONFIRMED daily close — otherwise, on the live forming bar, entry
+// is re-set to the current tick each update and the entry/target appear to drift with
+// price (repainting). isConfirmed is always true on historical bars, so the backtest is
+// unchanged; live, the state locks once the daily candle closes.
+if barstate.isconfirmed
+    if pos == 0
+        if close > upper
+            pos   := 1
+            entry := close
+            stop  := hh - atrMult * a
+            risk0 := math.max(math.abs(entry - stop), a)
+            lastEntry := close
+            lastEntryBar := bar_index
+            lastDir := 1
+            lastRisk := risk0
+        else if allowShort and close < lower
+            pos   := -1
+            entry := close
+            stop  := ll + atrMult * a
+            risk0 := math.max(math.abs(entry - stop), a)
+            lastEntry := close
+            lastEntryBar := bar_index
+            lastDir := -1
+            lastRisk := risk0
+    else if pos == 1
+        stop := math.max(stop, hh - atrMult * a)    // Chandelier trail ratchets up only
+        if close < stop
+            pos := 0
+            entry := na
+            stop := na
+            risk0 := na
+    else
+        stop := math.min(stop, ll + atrMult * a)    // ratchets down only
+        if close > stop
+            pos := 0
+            entry := na
+            stop := na
+            risk0 := na
 
 enterLong  = pos == 1  and posPrev != 1
 enterShort = pos == -1 and posPrev != -1
