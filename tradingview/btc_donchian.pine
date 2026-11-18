@@ -68,6 +68,13 @@ enterLong  = pos == 1  and posPrev != 1
 enterShort = pos == -1 and posPrev != -1
 exitTrade  = pos == 0  and posPrev != 0
 
+// profit-protection state: once the trail crosses past entry, the stop is locking gains,
+// not sitting as a raw risk stop. (long: stop>entry · short: stop<entry)
+locked  = (pos == 1 and stop > entry) or (pos == -1 and stop < entry)
+lockAmt = locked ? math.abs(stop - entry) : na
+lockR   = locked and not na(risk0) and risk0 != 0 ? math.abs(stop - entry) / risk0 : na
+tgtHit  = (pos == 1 and close >= target) or (pos == -1 and close <= target)
+
 // the PLAN while flat (leading): where the next trade triggers, with its stop and target
 planOn  = showPlan and pos == 0
 lStop   = hh - atrMult * a
@@ -81,7 +88,7 @@ sTarget = lower - tgtR * sRisk
 plot(upper, "Donchian high", color.new(color.teal, 55), 1)
 plot(lower, "Donchian low",  color.new(color.teal, 55), 1)
 plot(pos != 0 ? entry  : na, "ENTRY",  color.new(color.blue, 0),  2, plot.style_linebr)
-plot(pos != 0 ? stop   : na, "STOP (trailing)", color.new(color.red, 0), 2, plot.style_linebr)
+plot(pos != 0 ? stop   : na, "STOP / Trail", color = locked ? color.new(color.lime, 0) : color.new(color.red, 0), linewidth = 2, style = plot.style_linebr)
 plot(pos != 0 ? target : na, "TARGET (ref)", color.new(color.green, 0), 2, plot.style_linebr)
 plot(planOn ? upper   : na, "Long trigger",  color.new(color.green, 20), 2, plot.style_linebr)
 plot(planOn ? lStop   : na, "Long stop",     color.new(color.red, 55),   1, plot.style_linebr)
@@ -123,9 +130,11 @@ label.delete(lS)
 label.delete(lT)
 if barstate.islast
     if pos != 0
-        lE := label.new(bar_index, entry,  "ENTRY " + str.tostring(entry, format.mintick),  color=color.new(color.blue, 20),  style=label.style_label_left, textcolor=color.white, size=size.small)
-        lS := label.new(bar_index, stop,   "STOP "  + str.tostring(stop, format.mintick),   color=color.new(color.red, 10),   style=label.style_label_left, textcolor=color.white, size=size.small)
-        lT := label.new(bar_index, target, "TARGET "+ str.tostring(target, format.mintick), color=color.new(color.green, 10), style=label.style_label_left, textcolor=color.white, size=size.small)
+        sTxt = locked ? "TRAIL · locks +" + str.tostring(lockAmt, format.mintick) + " (" + str.tostring(lockR, "#.0#") + "R)" : "STOP " + str.tostring(stop, format.mintick)
+        tTxt = tgtHit ? "TARGET ✓ hit " + str.tostring(target, format.mintick) : "TARGET " + str.tostring(target, format.mintick)
+        lE := label.new(bar_index, entry,  "ENTRY " + str.tostring(entry, format.mintick), color=color.new(color.blue, 20), style=label.style_label_left, textcolor=color.white, size=size.small)
+        lS := label.new(bar_index, stop,   sTxt, color = locked ? color.new(color.green, 0) : color.new(color.red, 10), style=label.style_label_left, textcolor=color.white, size=size.small)
+        lT := label.new(bar_index, target, tTxt, color = tgtHit ? color.new(color.green, 0) : color.new(color.green, 40), style=label.style_label_left, textcolor=color.white, size=size.small)
     else if planOn
         lE := label.new(bar_index, upper,   "LONG if daily close>" + str.tostring(upper, format.mintick), color=color.new(color.green, 20), style=label.style_label_left, textcolor=color.white, size=size.small)
         lT := label.new(bar_index, lTarget, "→ target " + str.tostring(lTarget, format.mintick) + " / stop " + str.tostring(lStop, format.mintick), color=color.new(color.gray, 30), style=label.style_label_left, textcolor=color.white, size=size.small)
@@ -141,10 +150,11 @@ if barstate.islast
     rNow = pos != 0 and not na(risk0) ? pos * (close - entry) / risk0 : na
     table.cell(tb, 0, 0, "Donchian Trend · DAILY", text_color=color.white, bgcolor=color.new(color.black, 10))
     table.cell(tb, 1, 0, st, text_color=color.white, bgcolor=scol)
-    table.cell(tb, 0, 1, "Entry / Stop", text_color=color.white, bgcolor=color.new(color.gray, 55))
-    table.cell(tb, 1, 1, pos == 0 ? "—" : str.tostring(entry, format.mintick) + " / " + str.tostring(stop, format.mintick), text_color=color.silver)
+    table.cell(tb, 0, 1, locked ? "Entry / Trail 🔒" : "Entry / Stop", text_color=color.white, bgcolor=color.new(color.gray, 55))
+    stopCellTxt = pos == 0 ? "—" : str.tostring(entry, format.mintick) + " / " + str.tostring(stop, format.mintick) + (locked ? "  (locks +" + str.tostring(lockAmt, format.mintick) + ")" : "")
+    table.cell(tb, 1, 1, stopCellTxt, text_color = locked ? color.lime : color.silver)
     table.cell(tb, 0, 2, "Target (ref)", text_color=color.white, bgcolor=color.new(color.gray, 55))
-    table.cell(tb, 1, 2, pos == 0 ? "—" : str.tostring(target, format.mintick), text_color=color.silver)
+    table.cell(tb, 1, 2, pos == 0 ? "—" : (tgtHit ? "✓ hit " : "") + str.tostring(target, format.mintick), text_color = tgtHit ? color.lime : color.silver)
     table.cell(tb, 0, 3, "Open P&L / R", text_color=color.white, bgcolor=color.new(color.gray, 55))
     table.cell(tb, 1, 3, na(pnl) ? "—" : str.tostring(pnl, "#.0") + "% (" + str.tostring(rNow, "#.0#") + "R)", text_color = na(pnl) ? color.silver : pnl >= 0 ? color.lime : color.red)
     table.cell(tb, 0, 4, "PLAN (if flat)", text_color=color.white, bgcolor=color.new(color.gray, 55))
