@@ -1,82 +1,157 @@
 //@version=6
-// BTC/ETH Donchian Trend — the SAME strategy the BTC extension computes, drawn on the chart
-// so TradingView and the extension panel agree. Long+short trend-following: enter on a
+// BTC/ETH Donchian Trend + PLAN — the SAME strategy the BTC extension computes, drawn on
+// the chart so TradingView and the panel agree. Long+short trend-following: enter on a
 // 20-bar Donchian breakout, ride it with a 3xATR Chandelier trailing stop, exit when the
-// trail is hit. This is the ONE crypto approach that backtested positive over 8 years
-// (long-only scored higher; long+short also profits in downtrends). Use on the DAILY chart
-// for the proven edge — faster timeframes backtest worse. Patient; honour the stop. NOT advice.
-indicator("BTC Donchian Trend (long+short)", overlay=true, max_labels_count=200)
+// trail is hit. This is the ONE crypto approach that backtested POSITIVE over 8 years.
+//
+// HONEST NOTE (read once): this is REACTIVE by design — it enters AFTER a breakout confirms
+// on the DAILY close. That is WHY it works; trying to predict/front-run the breakout adds
+// whipsaws and turns the edge negative, and sub-daily timeframes LOSE after costs (your own
+// 8y backtest). So "ahead of time" here = the PLAN is drawn before the breakout (if price
+// closes beyond X -> trade, with this stop and target), NOT a prediction that it will happen.
+// Use on the DAILY chart. Patient. Honour the stop. NOT financial advice.
+indicator("BTC Donchian Trend + Plan (long+short)", overlay=true, max_labels_count=300, max_lines_count=300)
 
-period   = input.int(20,  "Donchian period", minval=5)
-atrMult  = input.float(3.0, "ATR trailing-stop multiple", step=0.5)
-atrLen   = input.int(14,  "ATR length")
+// ------------------------------------------------------------------ inputs
+period     = input.int(20, "Donchian period", minval=5)
+atrMult    = input.float(3.0, "ATR trailing-stop multiple", step=0.5)
+atrLen     = input.int(14, "ATR length")
 allowShort = input.bool(true, "Trade shorts too (profit in downtrends)")
+tgtR       = input.float(2.0, "Reference target (R multiple)", step=0.5, tooltip="A visual target at N x the initial risk. The REAL exit is the trailing stop — the edge comes from letting winners run, so treat this as a partial-book reference, not a hard exit.")
+showPlan   = input.bool(true, "Show the pending plan while flat")
+warnTF     = input.bool(true, "Warn if not on the Daily chart")
 
-upper = ta.highest(high, period)[1]   // prior N-bar high = long breakout level
-lower = ta.lowest(low, period)[1]     // prior N-bar low  = short breakout level
+// ------------------------------------------------------------------ core (validated daily edge)
+upper = ta.highest(high, period)[1]   // prior N-bar high = long breakout level (leading)
+lower = ta.lowest(low, period)[1]     // prior N-bar low  = short breakout level (leading)
 a     = ta.atr(atrLen)
+hh    = ta.highest(high, period)
+ll    = ta.lowest(low, period)
 
-var int   pos   = 0      // 1 long, -1 short, 0 flat
+var int   pos   = 0        // 1 long, -1 short, 0 flat
 var float entry = na
-var float trail = na
+var float stop  = na       // the trailing stop (the ACTUAL exit)
+var float risk0 = na       // initial risk at entry, for R-based target
 int posPrev = pos
 
 if pos == 0
     if close > upper
-        pos := 1
+        pos   := 1
         entry := close
-        trail := ta.highest(high, period) - atrMult * a
+        stop  := hh - atrMult * a
+        risk0 := math.max(math.abs(entry - stop), a)
     else if allowShort and close < lower
-        pos := -1
+        pos   := -1
         entry := close
-        trail := ta.lowest(low, period) + atrMult * a
+        stop  := ll + atrMult * a
+        risk0 := math.max(math.abs(entry - stop), a)
 else if pos == 1
-    trail := math.max(trail, ta.highest(high, period) - atrMult * a)
-    if close < trail
+    stop := math.max(stop, hh - atrMult * a)    // Chandelier trail ratchets up only
+    if close < stop
         pos := 0
         entry := na
-        trail := na
+        stop := na
+        risk0 := na
 else
-    trail := math.min(trail, ta.lowest(low, period) + atrMult * a)
-    if close > trail
+    stop := math.min(stop, ll + atrMult * a)    // ratchets down only
+    if close > stop
         pos := 0
         entry := na
-        trail := na
+        stop := na
+        risk0 := na
 
 enterLong  = pos == 1  and posPrev != 1
 enterShort = pos == -1 and posPrev != -1
 exitTrade  = pos == 0  and posPrev != 0
 
-// ----- plots -----
-plot(upper, "Donchian high", color.new(color.teal, 40), 1)
-plot(lower, "Donchian low",  color.new(color.teal, 40), 1)
-plot(pos != 0 ? trail : na, "Trailing stop", pos == 1 ? color.new(color.red, 0) : color.new(color.red, 0), 2, plot.style_linebr)
-plot(pos != 0 ? entry : na, "Entry", color.new(color.blue, 0), 1, plot.style_linebr)
+// Active-trade target (reference): N*R beyond entry.
+target = pos == 1 ? entry + tgtR * risk0 : pos == -1 ? entry - tgtR * risk0 : na
+
+// ------------------------------------------------------------------ the PLAN while flat (leading)
+planOn    = showPlan and pos == 0
+lStop     = hh - atrMult * a
+lRisk     = math.max(upper - lStop, a)
+lTarget   = upper + tgtR * lRisk
+sStop     = ll + atrMult * a
+sRisk     = math.max(sStop - lower, a)
+sTarget   = lower - tgtR * sRisk
+
+// ------------------------------------------------------------------ plots: levels you can SEE
+plot(upper, "Donchian high", color.new(color.teal, 55), 1)
+plot(lower, "Donchian low",  color.new(color.teal, 55), 1)
+
+// in a trade — big clear lines
+plot(pos != 0 ? entry  : na, "ENTRY",  color.new(color.blue, 0),  2, plot.style_linebr)
+plot(pos != 0 ? stop   : na, "STOP (trailing)", color.new(color.red, 0), 2, plot.style_linebr)
+plot(pos != 0 ? target : na, "TARGET (ref)", color.new(color.green, 0), 2, plot.style_linebr)
+
+// flat — the pending plan, so you're ready BEFORE the breakout
+plot(planOn ? upper   : na, "Long trigger",  color.new(color.green, 20), 2, plot.style_linebr)
+plot(planOn ? lStop   : na, "Long stop",     color.new(color.red, 55),   1, plot.style_linebr)
+plot(planOn ? lTarget : na, "Long target",   color.new(color.green, 55), 1, plot.style_linebr)
+plot(planOn and allowShort ? lower   : na, "Short trigger", color.new(color.red, 20),  2, plot.style_linebr)
+plot(planOn and allowShort ? sStop   : na, "Short stop",    color.new(color.red, 70),  1, plot.style_linebr)
+plot(planOn and allowShort ? sTarget : na, "Short target",  color.new(color.green, 70),1, plot.style_linebr)
+
 bgcolor(pos == 1 ? color.new(color.green, 90) : pos == -1 ? color.new(color.red, 90) : na, title="Position")
 
 plotshape(enterLong,  "Enter long",  shape.triangleup,   location.belowbar, color.new(color.green, 0), text="LONG",  size=size.small)
 plotshape(enterShort, "Enter short", shape.triangledown, location.abovebar, color.new(color.red, 0),   text="SHORT", size=size.small)
 plotshape(exitTrade,  "Exit",        shape.xcross,       location.abovebar, color.new(color.gray, 0),  text="EXIT",  size=size.tiny)
 
-// ----- dashboard -----
-var table tb = table.new(position.top_right, 2, 4, border_width=1)
+// ------------------------------------------------------------------ right-edge labels (clarity)
+var label lE = na
+var label lS = na
+var label lT = na
+label.delete(lE)
+label.delete(lS)
+label.delete(lT)
 if barstate.islast
-    st = pos == 1 ? "LONG" : pos == -1 ? "SHORT" : "FLAT"
+    if pos != 0
+        lE := label.new(bar_index, entry,  "ENTRY " + str.tostring(entry, format.mintick),  color=color.new(color.blue, 20),  style=label.style_label_left, textcolor=color.white, size=size.small)
+        lS := label.new(bar_index, stop,   "STOP "  + str.tostring(stop, format.mintick),   color=color.new(color.red, 10),   style=label.style_label_left, textcolor=color.white, size=size.small)
+        lT := label.new(bar_index, target, "TARGET "+ str.tostring(target, format.mintick), color=color.new(color.green, 10), style=label.style_label_left, textcolor=color.white, size=size.small)
+    else if planOn
+        lE := label.new(bar_index, upper,   "LONG if close>" + str.tostring(upper, format.mintick),   color=color.new(color.green, 20), style=label.style_label_left, textcolor=color.white, size=size.small)
+        lT := label.new(bar_index, lTarget, "→ target " + str.tostring(lTarget, format.mintick) + " / stop " + str.tostring(lStop, format.mintick), color=color.new(color.gray, 30), style=label.style_label_left, textcolor=color.white, size=size.small)
+        if allowShort
+            lS := label.new(bar_index, lower, "SHORT if close<" + str.tostring(lower, format.mintick) + " → tgt " + str.tostring(sTarget, format.mintick) + " / stop " + str.tostring(sStop, format.mintick), color=color.new(color.red, 20), style=label.style_label_left, textcolor=color.white, size=size.small)
+
+// ------------------------------------------------------------------ dashboard
+var table tb = table.new(position.top_right, 2, 6, border_width=1)
+if barstate.islast
+    st   = pos == 1 ? "LONG" : pos == -1 ? "SHORT" : "FLAT"
     scol = pos == 1 ? color.new(color.green, 0) : pos == -1 ? color.new(color.red, 0) : color.new(color.gray, 35)
-    pnl = pos != 0 and not na(entry) ? pos * (close / entry - 1) * 100 : na
-    table.cell(tb, 0, 0, "Donchian Trend", text_color=color.white, bgcolor=color.new(color.black, 20))
+    pnl  = pos != 0 and not na(entry) ? pos * (close / entry - 1) * 100 : na
+    rNow = pos != 0 and not na(risk0) ? pos * (close - entry) / risk0 : na
+    table.cell(tb, 0, 0, "Donchian Trend + Plan", text_color=color.white, bgcolor=color.new(color.black, 10))
     table.cell(tb, 1, 0, st, text_color=color.white, bgcolor=scol)
     table.cell(tb, 0, 1, "Entry / Stop", text_color=color.white, bgcolor=color.new(color.gray, 55))
-    table.cell(tb, 1, 1, pos == 0 ? "—" : str.tostring(entry, format.mintick) + " / " + str.tostring(trail, format.mintick), text_color=color.silver)
-    table.cell(tb, 0, 2, "Open P&L", text_color=color.white, bgcolor=color.new(color.gray, 55))
-    table.cell(tb, 1, 2, na(pnl) ? "—" : str.tostring(pnl, "#.0") + "%", text_color = na(pnl) ? color.silver : pnl >= 0 ? color.lime : color.red)
-    table.cell(tb, 0, 3, "Watch", text_color=color.white, bgcolor=color.new(color.gray, 55))
-    table.cell(tb, 1, 3, pos == 0 ? ("long>" + str.tostring(upper, format.mintick) + (allowShort ? " / short<" + str.tostring(lower, format.mintick) : "")) : "trail " + str.tostring(trail, format.mintick), text_color=color.silver)
+    table.cell(tb, 1, 1, pos == 0 ? "—" : str.tostring(entry, format.mintick) + " / " + str.tostring(stop, format.mintick), text_color=color.silver)
+    table.cell(tb, 0, 2, "Target (ref)", text_color=color.white, bgcolor=color.new(color.gray, 55))
+    table.cell(tb, 1, 2, pos == 0 ? "—" : str.tostring(target, format.mintick), text_color=color.silver)
+    table.cell(tb, 0, 3, "Open P&L / R", text_color=color.white, bgcolor=color.new(color.gray, 55))
+    table.cell(tb, 1, 3, na(pnl) ? "—" : str.tostring(pnl, "#.0") + "% (" + str.tostring(rNow, "#.0#") + "R)", text_color = na(pnl) ? color.silver : pnl >= 0 ? color.lime : color.red)
+    table.cell(tb, 0, 4, "PLAN (if flat)", text_color=color.white, bgcolor=color.new(color.gray, 55))
+    table.cell(tb, 1, 4, pos != 0 ? "in trade — trail " + str.tostring(stop, format.mintick) : ("long>" + str.tostring(upper, format.mintick) + (allowShort ? " / short<" + str.tostring(lower, format.mintick) : "")), text_color=color.silver)
+    tfWarn = warnTF and not timeframe.isdaily
+    table.cell(tb, 0, 5, "Timeframe", text_color=color.white, bgcolor = tfWarn ? color.new(color.red, 0) : color.new(color.gray, 55))
+    table.cell(tb, 1, 5, tfWarn ? "⚠ NOT DAILY — edge is daily only" : "Daily ✓", text_color = tfWarn ? color.white : color.lime, bgcolor = tfWarn ? color.new(color.red, 20) : na)
 
-// ----- alerts -----
+// ------------------------------------------------------------------ alerts
+nearLong  = pos == 0 and close < upper and close >= upper * 0.99
+nearShort = pos == 0 and allowShort and close > lower and close <= lower * 1.01
 if enterLong
-    alert("Donchian LONG " + syminfo.ticker + " @" + str.tostring(close, format.mintick) + " stop " + str.tostring(trail, format.mintick), alert.freq_once_per_bar_close)
+    alert("Donchian LONG " + syminfo.ticker + " @" + str.tostring(close, format.mintick) + " · stop " + str.tostring(stop, format.mintick) + " · target " + str.tostring(target, format.mintick), alert.freq_once_per_bar_close)
 if enterShort
-    alert("Donchian SHORT " + syminfo.ticker + " @" + str.tostring(close, format.mintick) + " stop " + str.tostring(trail, format.mintick), alert.freq_once_per_bar_close)
+    alert("Donchian SHORT " + syminfo.ticker + " @" + str.tostring(close, format.mintick) + " · stop " + str.tostring(stop, format.mintick) + " · target " + str.tostring(target, format.mintick), alert.freq_once_per_bar_close)
 if exitTrade
     alert("Donchian EXIT " + syminfo.ticker + " — trailing stop hit", alert.freq_once_per_bar_close)
+if nearLong
+    alert("Donchian " + syminfo.ticker + " approaching LONG trigger " + str.tostring(upper, format.mintick) + " (watch the close)", alert.freq_once_per_bar)
+if nearShort
+    alert("Donchian " + syminfo.ticker + " approaching SHORT trigger " + str.tostring(lower, format.mintick) + " (watch the close)", alert.freq_once_per_bar)
+if pos == 1 and not na(target) and high >= target
+    alert("Donchian LONG " + syminfo.ticker + " hit reference target " + str.tostring(target, format.mintick) + " — consider booking part; trail runs the rest", alert.freq_once_per_bar)
+if pos == -1 and not na(target) and low <= target
+    alert("Donchian SHORT " + syminfo.ticker + " hit reference target " + str.tostring(target, format.mintick) + " — consider booking part; trail runs the rest", alert.freq_once_per_bar)
