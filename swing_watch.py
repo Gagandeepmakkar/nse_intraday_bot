@@ -100,7 +100,11 @@ def push(msg):
 def run(do_push=False):
     if not os.path.exists(STATE):
         return ["no swing_watch.json — run swing_scan first"]
-    data = json.load(open(STATE))
+    try:
+        with open(STATE) as f:
+            data = json.load(f)
+    except Exception:
+        return ["swing_watch.json is unreadable/corrupt — skipping this watch."]
     today = datetime.now(TZ).strftime("%Y-%m-%d")
     if data.get("date") != today:
         return [f"swing_watch.json is stale (dated {data.get('date')}, today {today}) — "
@@ -118,13 +122,18 @@ def run(do_push=False):
             continue
         ns, msg = _event(su, p)
         if ns:
+            if ns == "t1" and su.get("entry") is not None:
+                su["stop"] = su["entry"]  # trail stop to breakeven for real (matches the alert)
             su["status"] = ns
             changed = True
             lines.append(msg)
             if do_push:
                 push(msg)
     if changed:
-        json.dump(data, open(STATE, "w"))
+        tmp = STATE + ".tmp"   # atomic write so a kill mid-write can't corrupt the state
+        with open(tmp, "w") as f:
+            json.dump(data, f)
+        os.replace(tmp, STATE)
     return lines or [f"{datetime.now(TZ):%H:%M} — no triggers ({len(live)} watching)"]
 
 

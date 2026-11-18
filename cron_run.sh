@@ -44,6 +44,9 @@ LOG="cron.log"
   fi
   # After market close: self-audit the recorded signals/outcomes and send the report.
   if [ "$HM" -ge 1535 ] && [ "$HM" -lt 1600 ]; then
+    # Final trigger sweep at close — the intraday slots stop at 14:30, so this catches
+    # any buy-zone/T1/stop hit in the last hour (14:30-15:30).
+    python swing_watch.py --ntfy || echo "swing_watch.py (close) exited non-zero"
     python audit.py --ntfy --email || echo "audit.py exited non-zero"
     # Auto-grade every swing call against real prices (did it hit target/stop,
     # expected vs actual days) — the honesty layer for the swing engine.

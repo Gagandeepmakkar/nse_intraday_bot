@@ -157,8 +157,9 @@ def _persist(res):
                        "buy_zone": trig, "setup": lv.get("setup"),
                        "status": "watch" if trig else "active"})
     try:
-        json.dump({"date": datetime.now(TZ).strftime("%Y-%m-%d"), "setups": setups},
-                  open("swing_watch.json", "w"))
+        with open("swing_watch.json.tmp", "w") as f:
+            json.dump({"date": datetime.now(TZ).strftime("%Y-%m-%d"), "setups": setups}, f)
+        os.replace("swing_watch.json.tmp", "swing_watch.json")  # atomic
     except Exception:
         pass
     # Append the actionable BUY/SELL calls to the append-only ledger so swing_audit.py
