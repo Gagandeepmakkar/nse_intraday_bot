@@ -38,6 +38,9 @@ LOG="cron.log"
   # shortlist to phone — so you know which stocks to open in the extension.
   if [ "$HM" -ge 930 ] && [ "$HM" -le 1515 ]; then
     python movers.py --ntfy --email || echo "movers.py exited non-zero"
+    # Hands-free trigger-watch: alert when a morning swing setup hits its buy zone,
+    # target, or stop — so you don't have to stare at charts.
+    python swing_watch.py --ntfy || echo "swing_watch.py exited non-zero"
   fi
   # After market close: self-audit the recorded signals/outcomes and send the report.
   if [ "$HM" -ge 1535 ]; then

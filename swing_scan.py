@@ -123,6 +123,31 @@ def push(text, res):
             print(f"[ntfy failed: {e}]", file=sys.stderr)
 
 
+def _persist(res):
+    """Write the day's setups to swing_watch.json so swing_watch.py can track live
+    triggers/stops/targets. BUY/SELL = active positions to manage; WAIT = watch names
+    whose buy_zone (nearest support/resistance) we alert on when price reaches it."""
+    import json
+    setups = []
+    for r in res["buys"]:
+        lv = r.get("levels") or {}
+        setups.append({"symbol": r["symbol"], "side": r["side"], "entry": lv.get("entry"),
+                       "stop": lv.get("stop"), "t1": lv.get("target1"), "t2": lv.get("target2"),
+                       "status": "active"})
+    for r in res["watch"]:
+        lv = r.get("levels") or {}
+        ev = r.get("evidence") or {}
+        sup = (ev.get("nearest_support") or {}).get("price") if r.get("side") == "LONG" else (ev.get("nearest_resistance") or {}).get("price")
+        setups.append({"symbol": r["symbol"], "side": r["side"], "entry": lv.get("entry"),
+                       "stop": lv.get("stop"), "t1": lv.get("target1"), "t2": lv.get("target2"),
+                       "buy_zone": sup, "status": "watch"})
+    try:
+        json.dump({"date": datetime.now(TZ).strftime("%Y-%m-%d"), "setups": setups},
+                  open("swing_watch.json", "w"))
+    except Exception:
+        pass
+
+
 def main():
     limit = None
     for a in sys.argv[1:]:
@@ -131,6 +156,7 @@ def main():
     res = scan(limit=limit)
     text = report(res)
     print(text)
+    _persist(res)
     push(text, res)
 
 
