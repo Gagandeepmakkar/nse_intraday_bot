@@ -45,6 +45,9 @@ LOG="cron.log"
   # After market close: self-audit the recorded signals/outcomes and send the report.
   if [ "$HM" -ge 1535 ]; then
     python audit.py --ntfy --email || echo "audit.py exited non-zero"
+    # Auto-grade every swing call against real prices (did it hit target/stop,
+    # expected vs actual days) — the honesty layer for the swing engine.
+    python swing_audit.py --ntfy --email || echo "swing_audit.py exited non-zero"
   fi
 } >> "$LOG" 2>&1
 

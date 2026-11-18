@@ -231,6 +231,9 @@ def score(symbol, catalyst=None, fast=False):
     risk = abs(entry - stop)
     rr = round(abs(t1 - entry) / risk, 2) if risk > 0 else 0
     thin = turnover_cr < 2.0
+    # Expected trading days to reach T1 ≈ distance / daily ATR (the stock's typical
+    # daily range). Rough but honest: if T1 is ~3 ATR away it usually takes ~3 days.
+    eta_days = max(1, round(abs(t1 - entry) / atr)) if atr > 0 else None
 
     # ---- verdict gate ----
     action = "WAIT"
@@ -248,7 +251,7 @@ def score(symbol, catalyst=None, fast=False):
         "symbol": sym, "action": action, "side": side, "score": sc, "confidence": sc,
         "price": round(price, 2),
         "levels": {"entry": round(entry, 2), "stop": stop, "target1": round(t1, 2),
-                   "target2": round(t2, 2), "rr": rr, "t1_label": t1_label},
+                   "target2": round(t2, 2), "rr": rr, "t1_label": t1_label, "eta_days": eta_days},
         "factors": pts,
         "evidence": {
             "trend": "UP" if price > ema20 > ema50 else "DOWN" if price < ema20 < ema50 else "MIXED",

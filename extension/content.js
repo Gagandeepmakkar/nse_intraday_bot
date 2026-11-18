@@ -107,7 +107,8 @@
     const rs = ev.rel_strength_vs_nifty_pct;
     const rsTxt = (rs != null) ? ((rs > 0 ? "+" : "") + rs + "%") : "?";
     const why = (ev.trend || "?") + " · RSI " + (ev.rsi != null ? ev.rsi : "?") + " · RS " + rsTxt + " · regime " + (ev.nifty_regime || "?");
-    const levels = lv.entry ? ('<div style="font-size:12px;margin-top:4px">Entry <b>₹' + lv.entry + '</b> · SL <b>₹' + lv.stop + '</b> · T1 <b>₹' + lv.target1 + '</b> · T2 <b>₹' + lv.target2 + '</b> · R:R <b>' + lv.rr + '</b></div>') : "";
+    const eta = lv.eta_days ? ' · ~' + lv.eta_days + 'd to T1' : '';
+    const levels = lv.entry ? ('<div style="font-size:12px;margin-top:4px">Entry <b>₹' + lv.entry + '</b> · SL <b>₹' + lv.stop + '</b> · T1 <b>₹' + lv.target1 + '</b> · T2 <b>₹' + lv.target2 + '</b> · R:R <b>' + lv.rr + '</b>' + eta + '</div>') : "";
     el.innerHTML =
       '<div style="border:1px solid rgba(255,255,255,.15);border-radius:8px;padding:8px;margin:2px 0 10px;background:rgba(255,255,255,.04)">' +
         '<div style="font-size:10px;letter-spacing:.3px;opacity:.65;margin-bottom:3px">🎯 DAILY SWING CALL · same as your mail</div>' +
@@ -495,6 +496,7 @@
     }
     if (!S.news.sentiment && S.symbol) fetchNews();
     if (!S.swing && S.symbol) fetchSwing();
+    renderSwing();  // swing call comes from the server (daily data) — show it even when the market is closed / no live candles
     try {
       const candles = await fetchCandles(S.interval);
       if (!candles.length) return;

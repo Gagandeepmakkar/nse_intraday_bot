@@ -71,9 +71,11 @@ def _line(r):
     why = f"trend {ev.get('trend','?')}, RS {rs:+.1f}% vs NIFTY, RSI {ev.get('rsi','?')}" if rs is not None else ""
     oi = ev.get("oi_walls")
     oistr = f" · OI S ₹{oi['put']:.0f}/R ₹{oi['call']:.0f}" if oi and oi.get("put") and oi.get("call") else ""
+    eta = lv.get("eta_days")
+    etastr = f" · ~{eta} trading day{'s' if eta and eta != 1 else ''} to T1" if eta else ""
     return (f"{r['symbol']} — {r['action']} ({r['side']}, score {r['score']})\n"
             f"   entry ₹{lv.get('entry')} · stop ₹{lv.get('stop')} · T1 ₹{lv.get('target1')} ({lv.get('t1_label','')}) · "
-            f"T2 ₹{lv.get('target2')} · R:R {lv.get('rr')}\n"
+            f"T2 ₹{lv.get('target2')} · R:R {lv.get('rr')}{etastr}\n"
             f"   why: {why}{oistr}")
 
 
@@ -144,6 +146,29 @@ def _persist(res):
     try:
         json.dump({"date": datetime.now(TZ).strftime("%Y-%m-%d"), "setups": setups},
                   open("swing_watch.json", "w"))
+    except Exception:
+        pass
+    # Append the actionable BUY/SELL calls to the append-only ledger so swing_audit.py
+    # can grade them automatically against real price action later. Dedup per day.
+    today = datetime.now(TZ).strftime("%Y-%m-%d")
+    try:
+        seen = set()
+        if os.path.exists("swing_ledger.jsonl"):
+            for line in open("swing_ledger.jsonl"):
+                try:
+                    e = json.loads(line)
+                    seen.add((e["date"], e["symbol"], e["side"]))
+                except Exception:
+                    pass
+        with open("swing_ledger.jsonl", "a") as f:
+            for r in res["buys"]:
+                lv = r.get("levels") or {}
+                if (today, r["symbol"], r["side"]) in seen:
+                    continue
+                f.write(json.dumps({"date": today, "symbol": r["symbol"], "side": r["side"],
+                                    "entry": lv.get("entry"), "stop": lv.get("stop"),
+                                    "t1": lv.get("target1"), "t2": lv.get("target2"),
+                                    "eta": lv.get("eta_days")}) + "\n")
     except Exception:
         pass
 
