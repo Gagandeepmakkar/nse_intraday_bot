@@ -21,6 +21,9 @@ LOG="cron.log"
   # Pre-open WATCHLIST (morning, ~09:10): top 5 hot stocks for today with pre-open gaps.
   if [ "$HM" -ge 908 ] && [ "$HM" -lt 911 ]; then
     python watchlist.py --morning --ntfy --email || echo "watchlist morning failed"
+    # SWING scan (the one brain): ranks the Nifty 500 and mails the best BUY/SELL
+    # setups with entry/stop/target, or an honest SIT-OUT on extended days.
+    python swing_scan.py --ntfy --email || echo "swing_scan failed"
   fi
   # Pre-market briefing (~09:12): deep read on your BRIEF_SYMBOLS.
   if [ "$HM" -ge 911 ] && [ "$HM" -lt 915 ]; then
