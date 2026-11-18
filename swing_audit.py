@@ -57,16 +57,26 @@ def _grade(e):
     df = swing._daily(ik, days=max(span, 30))
     if df.empty:
         return None
-    post = df[df["date"].dt.date > issue]  # completed bars AFTER the issue day
+    rows = list(df[df["date"].dt.date > issue].iterrows())  # completed bars after issue
     long = e["side"] == "LONG"
-    entry, stop, t1 = e["entry"], e["stop"], e["t1"]
+    entry, stop, t1, trig = e["entry"], e["stop"], e["t1"], e.get("trigger")
     if None in (entry, stop, t1):
         return None
     risk = abs(entry - stop)
     if risk <= 0:
         return None
     win_R = round(abs(t1 - entry) / risk, 2)
-    for day_i, (_, d) in enumerate(post.iterrows(), start=1):
+    # Conditional order: only fills if price reached the trigger. If it never did,
+    # it was never a trade (NOFILL), so it must not count as a win or a loss.
+    start = 0
+    if trig is not None:
+        hit = next((i for i, (_, d) in enumerate(rows)
+                    if (long and d["low"] <= trig) or (not long and d["high"] >= trig)), None)
+        if hit is None:
+            return {"result": "NOFILL", "R": 0.0, "days": len(rows),
+                    "on": str(df["date"].iloc[-1].date())}
+        start = hit
+    for day_i, (_, d) in enumerate(rows[start:], start=1):
         hi, lo = d["high"], d["low"]
         hit_stop = (lo <= stop) if long else (hi >= stop)
         hit_t1 = (hi >= t1) if long else (lo <= t1)
@@ -76,7 +86,7 @@ def _grade(e):
             return {"result": "T1", "R": win_R, "days": day_i, "on": str(d["date"].date())}
     last = float(df["close"].iloc[-1])
     unreal = round(((last - entry) / risk) if long else ((entry - last) / risk), 2)
-    return {"result": "OPEN", "R": unreal, "days": len(post), "on": str(df["date"].iloc[-1].date())}
+    return {"result": "OPEN", "R": unreal, "days": len(rows) - start, "on": str(df["date"].iloc[-1].date())}
 
 
 def audit():
@@ -122,6 +132,9 @@ def report():
     for o in openp:
         out.append(f"- {o['date']} {o['symbol']} {o['side']} @{o['entry']} → OPEN "
                    f"({o['R']:+.2f}R unreal, {o['days']}d in)")
+    nofill = [g for g in graded if g["result"] == "NOFILL"]
+    if nofill:
+        out.append(f"- {len(nofill)} conditional order(s) never triggered (price didn't reach the level) — not trades.")
     out.append("")
     if closed and len(closed) < 20:
         out.append(f"_Only {len(closed)} closed — too few to conclude. Real money only after "

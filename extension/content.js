@@ -108,11 +108,13 @@
     const rsTxt = (rs != null) ? ((rs > 0 ? "+" : "") + rs + "%") : "?";
     const why = (ev.trend || "?") + " · RSI " + (ev.rsi != null ? ev.rsi : "?") + " · RS " + rsTxt + " · regime " + (ev.nifty_regime || "?");
     const eta = lv.eta_days ? ' · ~' + lv.eta_days + 'd to T1' : '';
-    const levels = lv.entry ? ('<div style="font-size:12px;margin-top:4px">Entry <b>₹' + lv.entry + '</b> · SL <b>₹' + lv.stop + '</b> · T1 <b>₹' + lv.target1 + '</b> · T2 <b>₹' + lv.target2 + '</b> · R:R <b>' + lv.rr + '</b>' + eta + '</div>') : "";
+    const enter = lv.trigger ? ('Order <b>₹' + lv.trigger + '</b>') : ('Enter <b>₹' + (lv.entry != null ? lv.entry : '?') + '</b>');
+    const levels = lv.entry ? ('<div style="font-size:12px;margin-top:4px">' + enter + ' · SL <b>₹' + lv.stop + '</b> · T1 <b>₹' + lv.target1 + '</b> · T2 <b>₹' + lv.target2 + '</b> · R:R <b>' + lv.rr + '</b>' + eta + '</div>') : "";
+    const setup = lv.setup ? (' <span style="font-size:11px;opacity:.7">' + lv.setup + '</span>') : '';
     el.innerHTML =
       '<div style="border:1px solid rgba(255,255,255,.15);border-radius:8px;padding:8px;margin:2px 0 10px;background:rgba(255,255,255,.04)">' +
         '<div style="font-size:10px;letter-spacing:.3px;opacity:.65;margin-bottom:3px">🎯 DAILY SWING CALL · same as your mail</div>' +
-        '<div style="font-size:16px;font-weight:700" class="' + cls + '">' + s.action + (s.side ? ' · ' + s.side : '') + ' <span style="font-size:12px;opacity:.8">score ' + (s.score != null ? s.score : "?") + '</span></div>' +
+        '<div style="font-size:16px;font-weight:700" class="' + cls + '">' + s.action + (s.side ? ' · ' + s.side : '') + ' <span style="font-size:12px;opacity:.8">score ' + (s.score != null ? s.score : "?") + '</span>' + setup + '</div>' +
         levels +
         '<div style="font-size:11px;opacity:.75;margin-top:3px">' + why + '</div>' +
         '<div style="font-size:11px;opacity:.6;margin-top:2px">' + (s.note || "") + '</div>' +

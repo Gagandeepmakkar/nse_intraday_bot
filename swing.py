@@ -211,47 +211,71 @@ def score(symbol, catalyst=None, fast=False):
     sc, pts = (long_s, long_pts) if long else (short_s, short_pts)
     side = "LONG" if long else "SHORT"
 
-    # ---- framing: entry / stop / targets at real levels, R:R gate ----
-    if long:
-        entry = price
-        # stop below nearest support, but capped at 2.5*ATR so risk stays sane
-        stop = round(max((nearest_sup["price"] if nearest_sup else price - 1.5 * atr) - 0.3 * atr,
-                         price - 2.5 * atr), 2)
-        t1 = nearest_res["price"] if nearest_res else round(price + 2 * atr, 2)
-        t2 = (res[1]["price"] if len(res) > 1 else round(t1 + 2 * atr, 2))
-        t1_label = nearest_res["label"] if nearest_res else "+2ATR"
-    else:
-        entry = price
-        stop = round(min((nearest_res["price"] if nearest_res else price + 1.5 * atr) + 0.3 * atr,
-                         price + 2.5 * atr), 2)
-        t1 = nearest_sup["price"] if nearest_sup else round(price - 2 * atr, 2)
-        t2 = (list(reversed(sup))[1]["price"] if len(sup) > 1 else round(t1 - 2 * atr, 2))
-        t1_label = nearest_sup["label"] if nearest_sup else "-2ATR"
+    # ---- framing: try 3 setup models the way a trader does, pick best R:R>=1.5 ----
+    # momentum = buy/sell now; pullback = wait for the dip to support (bounce to
+    # resistance for shorts); breakout = enter on the break of the level. Pullback and
+    # breakout carry a TRIGGER price — a resting order — so extended days still produce
+    # actionable plans instead of a flat sit-out.
+    # sup is ascending, so the NEAREST support below price is sup[-1] (not sup[0]).
+    s1 = sup[-1]["price"] if sup else price - 1.5 * atr
+    s2 = sup[-2]["price"] if len(sup) > 1 else s1 - 1.5 * atr
+    r1 = res[0]["price"] if res else price + 2 * atr   # res ascending: res[0] = nearest above
+    r2 = res[1]["price"] if len(res) > 1 else r1 + 2 * atr
+    s1lab = sup[-1]["label"] if sup else "support"
+    r1lab = res[0]["label"] if res else "resistance"
 
-    risk = abs(entry - stop)
-    rr = round(abs(t1 - entry) / risk, 2) if risk > 0 else 0
+    def _models(long):
+        if long:
+            return [
+                ("momentum", price, None, round(max(s1 - 0.3 * atr, price - 2.5 * atr), 2), r1, r2, r1lab),
+                ("pullback to " + s1lab, s1, s1, round(max(s2 - 0.3 * atr, s1 - 1.0 * atr), 2), r1, r2, r1lab)
+                if s1 < price else None,
+                ("breakout " + r1lab, round(r1 + 0.1 * atr, 2), r1, round(max(price - 0.5 * atr, r1 - 1.2 * atr), 2),
+                 r2, round(r2 + 2 * atr, 2), "next res"),
+            ]
+        return [
+            ("momentum", price, None, round(min(r1 + 0.3 * atr, price + 2.5 * atr), 2), s1, s2, s1lab),
+            ("bounce to " + r1lab, r1, r1, round(min(s2 + 0.3 * atr, r1 + 1.0 * atr), 2), s1, s2, s1lab)
+            if r1 > price else None,
+            ("breakdown " + s1lab, round(s1 - 0.1 * atr, 2), s1, round(min(price + 0.5 * atr, s1 + 1.2 * atr), 2),
+             s2, round(s2 - 2 * atr, 2), "next sup"),
+        ]
+
+    best = None
+    for m in _models(long):
+        if not m:
+            continue
+        typ, entry, trig, stp, t1, t2, lab = m
+        risk = abs(entry - stp)
+        if risk <= 0:
+            continue
+        rr = round(abs(t1 - entry) / risk, 2)
+        if rr >= 1.5 and (best is None or rr > best["rr"]):
+            best = {"setup": typ, "entry": round(entry, 2), "trigger": (round(trig, 2) if trig else None),
+                    "stop": stp, "t1": round(t1, 2), "t2": round(t2, 2), "rr": rr, "t1_label": lab}
+
     thin = turnover_cr < 2.0
-    # Expected trading days to reach T1 ≈ distance / daily ATR (the stock's typical
-    # daily range). Rough but honest: if T1 is ~3 ATR away it usually takes ~3 days.
-    eta_days = max(1, round(abs(t1 - entry) / atr)) if atr > 0 else None
-
-    # ---- verdict gate ----
-    action = "WAIT"
+    action, levels = "WAIT", None
+    if best:
+        eta = max(1, round(abs(best["t1"] - best["entry"]) / atr)) if atr > 0 else None
+        levels = {"entry": best["entry"], "trigger": best["trigger"], "stop": best["stop"],
+                  "target1": best["t1"], "target2": best["t2"], "rr": best["rr"],
+                  "t1_label": best["t1_label"], "eta_days": eta, "setup": best["setup"]}
     if thin:
         note = "too thin to trade (turnover < ₹2cr)"
-    elif sc >= 60 and rr >= 1.5:
+    elif best and sc >= 60:
         action = "BUY" if long else "SELL"
-        note = f"{side} setup: score {sc}, R:R {rr}"
-    elif sc >= 50:
-        note = f"watch: score {sc} but R:R {rr} (<1.5) — wait for a better entry"
+        trg = f" · trigger ₹{best['trigger']}" if best["trigger"] else " · enter now"
+        note = f"{side} {best['setup']}{trg} · score {sc} · R:R {best['rr']}"
+    elif best and sc >= 50:
+        note = f"watch: {best['setup']} R:R {best['rr']}, score {sc} (<60) — needs more confirmation"
     else:
         note = f"no clean setup (score {sc})"
 
     return {
         "symbol": sym, "action": action, "side": side, "score": sc, "confidence": sc,
         "price": round(price, 2),
-        "levels": {"entry": round(entry, 2), "stop": stop, "target1": round(t1, 2),
-                   "target2": round(t2, 2), "rr": rr, "t1_label": t1_label, "eta_days": eta_days},
+        "levels": levels,
         "factors": pts,
         "evidence": {
             "trend": "UP" if price > ema20 > ema50 else "DOWN" if price < ema20 < ema50 else "MIXED",

@@ -72,10 +72,12 @@ def _line(r):
     oi = ev.get("oi_walls")
     oistr = f" · OI S ₹{oi['put']:.0f}/R ₹{oi['call']:.0f}" if oi and oi.get("put") and oi.get("call") else ""
     eta = lv.get("eta_days")
-    etastr = f" · ~{eta} trading day{'s' if eta and eta != 1 else ''} to T1" if eta else ""
-    return (f"{r['symbol']} — {r['action']} ({r['side']}, score {r['score']})\n"
-            f"   entry ₹{lv.get('entry')} · stop ₹{lv.get('stop')} · T1 ₹{lv.get('target1')} ({lv.get('t1_label','')}) · "
-            f"T2 ₹{lv.get('target2')} · R:R {lv.get('rr')}{etastr}\n"
+    etastr = f" · ~{eta}d to T1" if eta else ""
+    setup = lv.get("setup", "")
+    trig = lv.get("trigger")
+    enter = f"on {setup} — place order ₹{trig}" if trig else f"NOW ₹{lv.get('entry')}"
+    return (f"{r['symbol']} — {r['action']} {r['side']}  (score {r['score']}, {setup})\n"
+            f"   enter {enter} · stop ₹{lv.get('stop')} · T1 ₹{lv.get('target1')} · T2 ₹{lv.get('target2')} · R:R {lv.get('rr')}{etastr}\n"
             f"   why: {why}{oistr}")
 
 
@@ -95,8 +97,12 @@ def report(res):
         for r in res["watch"]:
             lv = r.get("levels") or {}
             ev = r.get("evidence") or {}
-            out.append(f"- {r['symbol']} (score {r['score']}, {ev.get('trend','?')}, RSI {ev.get('rsi','?')}) "
-                       f"— needs pullback; would buy near ₹{lv.get('stop')}–support, not here ({r.get('note','')})")
+            if lv.get("setup"):
+                out.append(f"- {r['symbol']} (score {r['score']}, {ev.get('trend','?')}, RSI {ev.get('rsi','?')}) "
+                           f"— {lv['setup']}, order ₹{lv.get('trigger') or lv.get('entry')}, T1 ₹{lv.get('target1')}, "
+                           f"R:R {lv.get('rr')} — needs score ≥60")
+            else:
+                out.append(f"- {r['symbol']} (score {r['score']}, {ev.get('trend','?')}, RSI {ev.get('rsi','?')}) — no clean level yet")
     out.append("")
     out.append("_One brain: identical to the extension panel's call for each name. Swing/daily. "
                "Paper first; honour the stop. Not a prediction — a framed setup. No proven edge yet (audit.py)._")
@@ -133,16 +139,10 @@ def _persist(res):
     setups = []
     for r in res["buys"]:
         lv = r.get("levels") or {}
+        trig = lv.get("trigger")  # conditional (pullback/breakout) -> wait for the level
         setups.append({"symbol": r["symbol"], "side": r["side"], "entry": lv.get("entry"),
                        "stop": lv.get("stop"), "t1": lv.get("target1"), "t2": lv.get("target2"),
-                       "status": "active"})
-    for r in res["watch"]:
-        lv = r.get("levels") or {}
-        ev = r.get("evidence") or {}
-        sup = (ev.get("nearest_support") or {}).get("price") if r.get("side") == "LONG" else (ev.get("nearest_resistance") or {}).get("price")
-        setups.append({"symbol": r["symbol"], "side": r["side"], "entry": lv.get("entry"),
-                       "stop": lv.get("stop"), "t1": lv.get("target1"), "t2": lv.get("target2"),
-                       "buy_zone": sup, "status": "watch"})
+                       "buy_zone": trig, "status": "watch" if trig else "active"})
     try:
         json.dump({"date": datetime.now(TZ).strftime("%Y-%m-%d"), "setups": setups},
                   open("swing_watch.json", "w"))
@@ -166,9 +166,9 @@ def _persist(res):
                 if (today, r["symbol"], r["side"]) in seen:
                     continue
                 f.write(json.dumps({"date": today, "symbol": r["symbol"], "side": r["side"],
-                                    "entry": lv.get("entry"), "stop": lv.get("stop"),
-                                    "t1": lv.get("target1"), "t2": lv.get("target2"),
-                                    "eta": lv.get("eta_days")}) + "\n")
+                                    "entry": lv.get("entry"), "trigger": lv.get("trigger"),
+                                    "stop": lv.get("stop"), "t1": lv.get("target1"),
+                                    "t2": lv.get("target2"), "eta": lv.get("eta_days")}) + "\n")
     except Exception:
         pass
 
