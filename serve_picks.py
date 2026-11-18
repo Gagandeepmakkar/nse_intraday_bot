@@ -14,6 +14,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import analyze as analyzer
 import oi as oimod
+import swing as swingmod
 
 DB = "signals.db"
 PORT = 8787
@@ -196,6 +197,19 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 res = {"error": str(e)}
             self._send(200, json.dumps(res).encode())
+        elif parsed.path.startswith("/swing"):
+            # The ONE brain's verdict for a stock — identical to the morning mail.
+            # The extension panel shows this as the authoritative daily call.
+            q = parse_qs(parsed.query)
+            sym = (q.get("symbol") or [""])[0].strip().upper()
+            if not sym:
+                self._send(400, b'{"error":"symbol required"}')
+                return
+            try:
+                res = swingmod.score(sym)
+            except Exception as e:
+                res = {"symbol": sym, "action": "WAIT", "error": str(e)}
+            self._send(200, json.dumps(res, default=str).encode())
         else:
             self._send(404, b'{"error":"not found"}')
 

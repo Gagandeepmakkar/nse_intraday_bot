@@ -103,6 +103,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         } catch (e) { sendResponse(null); }  // server off / no token -> no walls
         return;
       }
+      if (msg.__swing) {
+        try {
+          const r = await fetch("http://127.0.0.1:8787/swing?symbol=" + encodeURIComponent(msg.symbol), { cache: "no-store" });
+          sendResponse(r.ok ? await r.json() : null);
+        } catch (e) { sendResponse(null); }  // server off -> no swing verdict
+        return;
+      }
       if (msg.__ntfy) { const ok = await sendNtfy(msg.topic, msg.title, msg.text); sendResponse({ ok }); return; }
       if (msg.__tgConnect) { const chat = await telegramChatId(msg.token); sendResponse({ ok: !!chat, chat }); return; }
       if (msg.__tg) { const res = await sendTelegram(msg.token, msg.chat, msg.text); sendResponse({ ok: !!(res && res.ok), desc: res && res.description }); return; }

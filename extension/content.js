@@ -14,7 +14,7 @@
     url: "", auth: "", symbol: "", interval: 5,
     phase: 0, entry: 0, stop: 0, t1: 0, t2: 0, t1done: false, eScore: 0, entry0: 0, stop0: 0,
     chart: null, series: null, lines: [], ro: null, panel: null, hh: 0, ll: 0, atr0: 0,
-    price: 0, shares: 0, lastOk: 0, blocked: false, news: {}, oi: null, lastBetterAt: 0, unsupported: false, movers: [], watchlist: {}, watchlistPicks: [], lastRawUrl: ""
+    price: 0, shares: 0, lastOk: 0, blocked: false, news: {}, oi: null, swing: null, lastBetterAt: 0, unsupported: false, movers: [], watchlist: {}, watchlistPicks: [], lastRawUrl: ""
   };
 
   // ---- Persisted config + UI geometry ----
@@ -71,12 +71,12 @@
       S.url = d.url; if (d.auth) S.auth = d.auth;
       if (sym !== S.symbol) {
         if (S.phase !== 0) closeTrade(floatingR(), "SWITCH");
-        S.symbol = sym; S.price = 0; S.news = {}; S.oi = null; reset(); fetchNews(); fetchOI();
+        S.symbol = sym; S.price = 0; S.news = {}; S.oi = null; S.swing = null; reset(); fetchNews(); fetchOI(); fetchSwing();
       }
     } else {
       // a chart we can't identify as an NSE equity — stop signalling on it
       if (S.phase !== 0) closeTrade(floatingR(), "SWITCH");
-      S.unsupported = true; S.symbol = ""; S.url = ""; S.price = 0; S.oi = null; reset();
+      S.unsupported = true; S.symbol = ""; S.url = ""; S.price = 0; S.oi = null; S.swing = null; reset();
     }
   });
   function fetchNews() {
@@ -90,6 +90,32 @@
     if (!S.symbol) return;
     const sym = S.symbol;
     try { chrome.runtime.sendMessage({ __oi: true, symbol: sym }, (r) => { if (sym === S.symbol) S.oi = (r && r.call_wall) ? r : null; }); } catch (e) {}
+  }
+  // The ONE brain's swing (daily) verdict for this stock — IDENTICAL to the morning
+  // mail. This is the authoritative call; the intraday Signals below are scratch.
+  function fetchSwing() {
+    if (!S.symbol) return;
+    const sym = S.symbol;
+    try { chrome.runtime.sendMessage({ __swing: true, symbol: sym }, (r) => { if (sym === S.symbol) { S.swing = (r && r.action) ? r : null; renderSwing(); } }); } catch (e) {}
+  }
+  function renderSwing() {
+    const el = $("vim-swing"); if (!el) return;
+    const s = S.swing;
+    if (!s || !s.action) { el.innerHTML = ""; return; }
+    const lv = s.levels || {}, ev = s.evidence || {};
+    const cls = s.action === "BUY" ? "BUY" : s.action === "SELL" ? "SELL" : "WAIT";
+    const rs = ev.rel_strength_vs_nifty_pct;
+    const rsTxt = (rs != null) ? ((rs > 0 ? "+" : "") + rs + "%") : "?";
+    const why = (ev.trend || "?") + " · RSI " + (ev.rsi != null ? ev.rsi : "?") + " · RS " + rsTxt + " · regime " + (ev.nifty_regime || "?");
+    const levels = lv.entry ? ('<div style="font-size:12px;margin-top:4px">Entry <b>₹' + lv.entry + '</b> · SL <b>₹' + lv.stop + '</b> · T1 <b>₹' + lv.target1 + '</b> · T2 <b>₹' + lv.target2 + '</b> · R:R <b>' + lv.rr + '</b></div>') : "";
+    el.innerHTML =
+      '<div style="border:1px solid rgba(255,255,255,.15);border-radius:8px;padding:8px;margin:2px 0 10px;background:rgba(255,255,255,.04)">' +
+        '<div style="font-size:10px;letter-spacing:.3px;opacity:.65;margin-bottom:3px">🎯 DAILY SWING CALL · same as your mail</div>' +
+        '<div style="font-size:16px;font-weight:700" class="' + cls + '">' + s.action + (s.side ? ' · ' + s.side : '') + ' <span style="font-size:12px;opacity:.8">score ' + (s.score != null ? s.score : "?") + '</span></div>' +
+        levels +
+        '<div style="font-size:11px;opacity:.75;margin-top:3px">' + why + '</div>' +
+        '<div style="font-size:11px;opacity:.6;margin-top:2px">' + (s.note || "") + '</div>' +
+      '</div>';
   }
 
   function reset() { S.phase = 0; S.t1done = false; S.eScore = 0; S.entry = S.stop = S.t1 = S.t2 = S.entry0 = S.stop0 = 0; }
@@ -165,6 +191,7 @@
       '</div>' +
       '<div id="vim-body">' +
         '<div id="vim-banner"></div>' +
+        '<div id="vim-swing"></div>' +
         '<div id="vim-hero"><div id="vim-action" class="WAIT">—</div><div id="vim-score"><span id="vim-scoretext">0</span><div id="vim-scorebar"><div id="vim-scorefill"></div></div></div></div>' +
         '<div id="vim-reason"></div>' +
         '<div id="vim-factors"></div>' +
@@ -447,6 +474,7 @@
     const ox = (S.oi && S.oi.call_wall && S.oi.put_wall)
       ? ` · OI <b class="neg">R ₹${Math.round(S.oi.call_wall)}</b>/<b class="pos">S ₹${Math.round(S.oi.put_wall)}</b> PCR ${S.oi.pcr}` : "";
     $("vim-meta").innerHTML = `Trend <b>${d.regime || d.trend || "?"}</b> · ADX <b>${d.adx != null ? d.adx : "?"}</b> · RSI <b>${d.rsi != null ? d.rsi : "?"}</b> · Size <b>${S.shares}</b> sh${nx}${cx}${ox}`;
+    renderSwing();  // keep the authoritative daily-swing call painted each tick
     ensureChart();
     if (S.series && candles.length) { S.series.setData(candles.map((c) => ({ time: c.t + IST, open: c.o, high: c.h, low: c.l, close: c.c }))); drawLevels(); S.chart.timeScale().fitContent(); }
   }
@@ -461,10 +489,12 @@
       const sy = $("vim-sym"); if (sy) sy.textContent = S.unsupported ? "unsupported" : "—";
       const lv = $("vim-levels"); if (lv) lv.innerHTML = "";
       const fc = $("vim-factors"); if (fc) fc.innerHTML = "";
+      const sw = $("vim-swing"); if (sw) sw.innerHTML = "";
       heartbeat(null, 0);
       return;
     }
     if (!S.news.sentiment && S.symbol) fetchNews();
+    if (!S.swing && S.symbol) fetchSwing();
     try {
       const candles = await fetchCandles(S.interval);
       if (!candles.length) return;
