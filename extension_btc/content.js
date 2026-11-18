@@ -26,8 +26,7 @@
       '<div id="btc-stats"></div>' +
       '<div id="btc-journal"></div>' +
       '<div id="btc-set" class="hidden">' +
-        '<label class="btc-f"><span>Timeframe</span><select id="btc-int"><option value="1d">Daily (proven edge)</option><option value="4h">4-hour (unproven)</option><option value="1h">1-hour (loses after costs)</option></select></label>' +
-        '<div id="btc-tfwarn" class="btc-warn hidden">⚠ Backtest: sub-daily Donchian on BTC/ETH LOSES after costs (−12% to −97%). ~35% win rate × fees per trade = bleed. Daily (~1-2 trades/month) is the only timeframe with a long-run edge. More trades ≠ more money here.</div>' +
+        '<div class="btc-warn">📅 DAILY only. Your 8-year backtest: sub-daily Donchian on BTC/ETH LOSES after costs (−12% to −97%) — ~35% win rate × fees per trade = bleed. Daily (~1-2 trades/month) is the only timeframe with a long-run edge, so the timeframe is fixed to Daily on purpose.</div>' +
         '<label class="btc-f"><span>Donchian period</span><input id="btc-per" type="number" value="20"></label>' +
         '<label class="btc-chk"><input type="checkbox" id="btc-short"> Trade both long &amp; short (on by default)</label>' +
         '<label class="btc-f"><span>Phone alerts — ntfy topic</span><input id="btc-ntfy" placeholder="your secret topic"></label>' +
@@ -43,11 +42,9 @@
       p.querySelectorAll(".btc-tab").forEach((x) => x.classList.toggle("active", x === t));
       drawChart();
     });
-    $("btc-int").value = CFG.interval; $("btc-per").value = CFG.period; $("btc-short").checked = CFG.allowShort; $("btc-ntfy").value = CFG.ntfyTopic;
-    const tfWarn = () => $("btc-tfwarn").classList.toggle("hidden", $("btc-int").value === "1d");
-    $("btc-int").onchange = tfWarn; tfWarn();
+    $("btc-per").value = CFG.period; $("btc-short").checked = CFG.allowShort; $("btc-ntfy").value = CFG.ntfyTopic;
     $("btc-save").onclick = () => {
-      CFG.interval = $("btc-int").value; CFG.period = parseInt($("btc-per").value, 10) || 20;
+      CFG.interval = "1d"; CFG.period = parseInt($("btc-per").value, 10) || 20;
       CFG.allowShort = $("btc-short").checked; CFG.ntfyTopic = $("btc-ntfy").value.trim();
       saveCfg(); $("btc-set").classList.add("hidden"); refresh();
     };
@@ -111,20 +108,29 @@
   try { chrome.storage.onChanged.addListener((ch, area) => { if (area === "local" && ch.btcjournal) renderTrades(); }); } catch (e) {}
 
   function fmt(n) { return n >= 1000 ? n.toLocaleString("en-US", { maximumFractionDigits: 0 }) : n.toFixed(2); }
+  function cell(k, v, c) { return `<div class="btc-lc ${c || ""}"><span>${k}</span><b>${v}</b></div>`; }
   function rowHtml(st, label) {
     const pos = st.pos === 1 ? "LONG" : st.pos === -1 ? "SHORT" : "FLAT";
     const cls = st.pos === 1 ? "long" : st.pos === -1 ? "short" : "flat";
     const pnl = st.pos ? `<b class="${st.pnl >= 0 ? "pos" : "neg"}">${st.pnl >= 0 ? "+" : ""}${st.pnl.toFixed(1)}%</b>` : "";
-    let detail;
-    if (!st.pos) detail = `waiting — LONG if close &gt; $${fmt(st.upBreak)}${CFG.allowShort ? ` · SHORT if &lt; $${fmt(st.dnBreak)}` : ""}`;
-    else if (st.entryBarsAgo <= 5) detail = `fresh ${pos} @ $${fmt(st.entry)} · stop $${fmt(st.stop)} · T1 $${fmt(st.t1)} · T2 $${fmt(st.t2)}`;
-    else detail = `${pos} @ $${fmt(st.entry)} (${st.entryBarsAgo} bars ago) · trailing stop $${fmt(st.stop)} — exit if price crosses it`;
-    return `<div class="btc-row"><div class="btc-r1"><span class="btc-sym">${label}</span><span class="btc-badge ${cls}">${pos}</span><span class="btc-px">$${fmt(st.px)}</span>${pnl}</div><div class="btc-det">${detail}</div></div>`;
+    let grid, note;
+    if (!st.pos) {
+      grid = cell("LONG if &gt;", "$" + fmt(st.upBreak), "up") + (CFG.allowShort ? cell("SHORT if &lt;", "$" + fmt(st.dnBreak), "dn") : "");
+      note = "flat — waiting for a DAILY close beyond the level. No trade yet.";
+    } else {
+      const fresh = st.entryBarsAgo <= 5;
+      grid = cell("Entry", "$" + fmt(st.entry)) + cell(fresh ? "Stop" : "Trail", "$" + fmt(st.stop), "dn")
+           + cell("T1", "$" + fmt(st.t1), "up") + cell("T2", "$" + fmt(st.t2), "up");
+      note = fresh
+        ? `fresh ${pos} — enter near entry, hard stop $${fmt(st.stop)} (targets are a reference; real exit is the trail)`
+        : `${pos} · ${st.entryBarsAgo} bars in · trailing stop $${fmt(st.stop)} — exits when a DAILY close crosses it`;
+    }
+    return `<div class="btc-row ${cls}"><div class="btc-r1"><span class="btc-sym">${label}</span><span class="btc-badge ${cls}">${pos}</span><span class="btc-px">$${fmt(st.px)}</span>${pnl}</div><div class="btc-lv">${grid}</div><div class="btc-det">${note}</div></div>`;
   }
 
   function refresh() {
     ensurePanel();
-    const mode = $("btc-mode"); if (mode) mode.textContent = CFG.interval + (CFG.allowShort ? " L/S" : " L");
+    const mode = $("btc-mode"); if (mode) mode.textContent = "DAILY" + (CFG.allowShort ? " · L/S" : " · long");
     try {
       chrome.runtime.sendMessage({ type: "btcstates", cfg: CFG }, (states) => {
         const el = $("btc-rows"); if (!el) return;
@@ -132,7 +138,7 @@
         el.innerHTML = states.map((st, i) => st && !st.err ? rowHtml(st, SYMS[i]) : `<div class="btc-det">${SYMS[i]}: ${(st && st.err) || "no data"}</div>`).join("");
         lastStates = states; drawChart();
         const src = states.find((s) => s && s.source);
-        if (mode && src) mode.textContent = CFG.interval + (CFG.allowShort ? " L/S" : " L") + " · " + src.source;
+        if (mode && src) mode.textContent = "DAILY · " + (CFG.allowShort ? "L/S · " : "long · ") + src.source;
       });
     } catch (e) {}
   }

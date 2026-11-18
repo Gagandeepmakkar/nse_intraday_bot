@@ -10,19 +10,29 @@
   -webkit-font-smoothing: antialiased;
 }
 #btc-panel.min #btc-body { display: none; }
-#btc-head { display: flex; align-items: center; gap: 8px; padding: 11px 13px; background: #141922; border-bottom: 1px solid #1c242f; cursor: move; }
-#btc-head .t { font-weight: 800; font-size: 14px; }
-#btc-mode { font-size: 10px; color: #8b95a3; }
+#btc-head { display: flex; align-items: center; gap: 8px; padding: 11px 13px; background: linear-gradient(135deg, #1a2130, #11161f); border-bottom: 1px solid #1c242f; cursor: move; }
+#btc-head .t { font-weight: 800; font-size: 14px; color: #f7a600; }
+#btc-mode { font-size: 10px; color: #8b95a3; letter-spacing: .3px; }
 #btc-head .ic { margin-left: auto; cursor: pointer; color: #8b95a3; font-size: 15px; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; border-radius: 6px; }
 #btc-head .ic + .ic { margin-left: 0; }
 #btc-head .ic:hover { color: #e8eaed; background: #1b232e; }
 #btc-body { padding: 12px; }
-.btc-row { background: #10151d; border: 1px solid #1b232e; border-radius: 10px; padding: 10px 11px; margin-bottom: 9px; }
+.btc-row { background: #10151d; border: 1px solid #1b232e; border-left-width: 3px; border-radius: 10px; padding: 10px 11px; margin-bottom: 9px; }
+.btc-row.long  { border-left-color: #2e9d5b; }
+.btc-row.short { border-left-color: #d44b57; }
+.btc-row.flat  { border-left-color: #3a4452; }
+/* levels grid — the new "face": scannable cells instead of a sentence */
+.btc-lv { display: flex; gap: 5px; margin-top: 9px; }
+.btc-lc { flex: 1; background: #0b0f15; border: 1px solid #1b232e; border-radius: 8px; padding: 6px 4px; text-align: center; }
+.btc-lc span { display: block; font-size: 8.5px; color: #7b8695; text-transform: uppercase; letter-spacing: .3px; }
+.btc-lc b { display: block; font-size: 12px; font-weight: 800; margin-top: 2px; color: #e8eaed; font-variant-numeric: tabular-nums; }
+.btc-lc.up b { color: #5ee490; }
+.btc-lc.dn b { color: #ff8a93; }
 .btc-r1 { display: flex; align-items: center; gap: 9px; }
 .btc-sym { font-weight: 800; font-size: 14px; }
 .btc-badge { font-size: 10px; font-weight: 800; padding: 3px 9px; border-radius: 999px; letter-spacing: .3px; }
-.btc-badge.long { background: #10331f; color: #5ee490; }
-.btc-badge.short { background: #3a1114; color: #ff8a93; }
+.btc-badge.long { background: #10331f; color: #5ee490; box-shadow: 0 0 0 1px rgba(94,228,144,.25), 0 0 10px rgba(94,228,144,.2); }
+.btc-badge.short { background: #3a1114; color: #ff8a93; box-shadow: 0 0 0 1px rgba(255,138,147,.25), 0 0 10px rgba(255,138,147,.2); }
 .btc-badge.flat { background: #1a2029; color: #8b95a3; }
 .btc-px { margin-left: auto; font-weight: 700; font-variant-numeric: tabular-nums; }
 .btc-r1 b { font-weight: 800; font-variant-numeric: tabular-nums; }

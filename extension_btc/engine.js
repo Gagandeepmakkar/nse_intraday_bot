@@ -57,16 +57,19 @@
       const hi = Math.max.apply(null, bars.slice(i - period, i).map(d => d.h));
       const lo = Math.min.apply(null, bars.slice(i - period, i).map(d => d.l));
       if (pos === 0) {
-        if (c > hi) { pos = 1; entry = c; entryI = i; stop = Math.max.apply(null, bars.slice(i - period, i + 1).map(d => d.h)) - 3 * a; risk0 = entry - stop; }
-        else if (allowShort && c < lo) { pos = -1; entry = c; entryI = i; stop = Math.min.apply(null, bars.slice(i - period, i + 1).map(d => d.l)) + 3 * a; risk0 = stop - entry; }
-      } else if (pos === 1) { stop = Math.max(stop, Math.max.apply(null, bars.slice(i - period, i + 1).map(d => d.h)) - 3 * a); if (c < stop) pos = 0; }
-      else { stop = Math.min(stop, Math.min.apply(null, bars.slice(i - period, i + 1).map(d => d.l)) + 3 * a); if (c > stop) pos = 0; }
+        if (c > hi) { pos = 1; entry = c; entryI = i; stop = Math.max.apply(null, bars.slice(i - period + 1, i + 1).map(d => d.h)) - 3 * a; risk0 = entry - stop; }
+        else if (allowShort && c < lo) { pos = -1; entry = c; entryI = i; stop = Math.min.apply(null, bars.slice(i - period + 1, i + 1).map(d => d.l)) + 3 * a; risk0 = stop - entry; }
+      } else if (pos === 1) { stop = Math.max(stop, Math.max.apply(null, bars.slice(i - period + 1, i + 1).map(d => d.h)) - 3 * a); if (c < stop) pos = 0; }
+      else { stop = Math.min(stop, Math.min.apply(null, bars.slice(i - period + 1, i + 1).map(d => d.l)) + 3 * a); if (c > stop) pos = 0; }
     }
     const L = bars.length - 1;
     return { pos, entry, stop, risk0: Math.abs(risk0), entryBarsAgo: pos ? L - entryI : 0, upBreak: Math.max.apply(null, bars.slice(L - period + 1, L + 1).map(d => d.h)), dnBreak: Math.min.apply(null, bars.slice(L - period + 1, L + 1).map(d => d.l)) };
   }
   async function state(k, cfg) {
-    const interval = cfg.interval || "1d", period = cfg.period || 20;
+    // DAILY ONLY — the 8y backtest showed sub-daily LOSES after costs, and Yahoo (the
+    // India-reachable source) has no true 4h candle. Force 1d so the panel never shows
+    // mislabeled/weaker-timeframe data.
+    const interval = "1d", period = cfg.period || 20;
     const { candles, px, source } = await fetchData(k, interval, period + 45);
     const d = donchian(candles.slice(0, -1), period, cfg.allowShort !== false);
     const pnl = d.pos ? d.pos * (px / d.entry - 1) * 100 : 0;
