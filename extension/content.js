@@ -361,7 +361,12 @@
     saveStats(); renderStats(); renderJournal(); reset();
   }
 
+  // Swing is the one engine now (the 🎯 DAILY SWING CALL box). The old intraday
+  // auto-trader is disabled so it can't open trades, log to the journal, or show a
+  // call that contradicts the swing verdict. Flip to false only to revive intraday.
+  var SWING_ONLY = true;
   function machine(forming, d) {
+    if (SWING_ONLY) return;  // intraday auto-trader off — no second engine
     S.blocked = STATS.trades >= CFG.maxTrades || STATS.cumR <= -Math.abs(CFG.maxLossR);
     if (S.phase === 0) {
       if (!S.blocked && S.symbol && d.levels && (d.action === "BUY" || d.action === "SELL")) {
@@ -457,12 +462,17 @@
     else if (S.blocked && S.phase === 0 && bn) { bn.textContent = "🛑 Daily limit — no new trades (" + STATS.trades + "/" + CFG.maxTrades + ", " + STATS.cumR.toFixed(1) + "R)"; bn.className = "warn show"; }
     else if (bn) bn.className = "";
     const act = $("vim-action");
-    if (open === false && S.phase === 0) { act.textContent = "MARKET CLOSED"; act.className = "WAIT"; }
+    if (SWING_ONLY) {
+      // Hero mirrors the swing verdict (the one engine) — no intraday contradiction.
+      const sw = S.swing;
+      act.textContent = sw ? (sw.action + (sw.side ? " " + sw.side : "")) : (open === false ? "MARKET CLOSED" : "LOADING…");
+      act.className = sw ? (sw.action === "BUY" ? "BUY" : sw.action === "SELL" ? "SELL" : "WAIT") : "WAIT";
+    } else if (open === false && S.phase === 0) { act.textContent = "MARKET CLOSED"; act.className = "WAIT"; }
     else {
       act.textContent = S.phase === 1 ? "HOLDING LONG" : S.phase === -1 ? "HOLDING SHORT" : d.action === "BUY" ? "BUY NOW" : d.action === "SELL" ? "SELL NOW" : d.action === "HOLD" ? "HOLD" : "WAIT";
       act.className = S.phase === 1 ? "LONG" : S.phase === -1 ? "SHORT" : (d.action === "BUY" ? "BUY" : d.action === "SELL" ? "SELL" : "WAIT");
     }
-    const sv = d.score != null ? d.score : 0;
+    const sv = (SWING_ONLY && S.swing && S.swing.score != null) ? S.swing.score : (d.score != null ? d.score : 0);
     $("vim-scoretext").textContent = sv;
     const fill = $("vim-scorefill"); fill.style.width = Math.min(100, sv) + "%"; fill.className = sv >= (CFG.minScore || 60) ? "hi" : sv >= 40 ? "mid" : "";
     $("vim-reason").textContent = S.phase !== 0 ? ("In trade @ " + S.entry.toFixed(2) + " · " + S.shares + " sh" + (S.t1done ? " · +1/3 booked, stop at breakeven" : "")) : (d.note || ("trend " + (d.trend || "?")));

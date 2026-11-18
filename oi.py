@@ -103,8 +103,11 @@ def walls(symbol, band_pct=4.0, expiry=None):
     band = spot * band_pct / 100 if spot else None
     near_calls = {k: v for k, v in calls.items() if spot and k >= spot and abs(k - spot) <= band and v > 0}
     near_puts = {k: v for k, v in puts.items() if spot and k <= spot and abs(k - spot) <= band and v > 0}
-    call_wall = max(near_calls, key=near_calls.get) if near_calls else (max(calls, key=calls.get) if calls else None)
-    put_wall = max(near_puts, key=near_puts.get) if near_puts else (max(puts, key=puts.get) if puts else None)
+    # Only near-spot, correct-SIDE walls. If none within band, return None rather than
+    # the global-max strike, which could sit on the wrong side of spot (a call wall
+    # BELOW spot is not resistance — reporting it would frame a trade to a fake level).
+    call_wall = max(near_calls, key=near_calls.get) if near_calls else None
+    put_wall = max(near_puts, key=near_puts.get) if near_puts else None
     return {
         "symbol": symbol.upper(), "spot": spot, "expiry": expiry,
         "pcr": round(tot_pe / tot_ce, 3) if tot_ce else None,

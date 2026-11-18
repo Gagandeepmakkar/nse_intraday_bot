@@ -247,7 +247,9 @@ def score(symbol, catalyst=None, fast=False):
             continue
         typ, entry, trig, stp, t1, t2, lab = m
         risk = abs(entry - stp)
-        if risk <= 0:
+        # Reject stops tighter than 0.6*ATR: a real swing stop needs room, and a
+        # near-zero risk would fake a huge R:R and win model selection wrongly.
+        if risk < 0.6 * atr:
             continue
         rr = round(abs(t1 - entry) / risk, 2)
         if rr >= 1.5 and (best is None or rr > best["rr"]):

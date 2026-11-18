@@ -40,7 +40,7 @@ def _universe(limit=None):
     return out[:limit] if limit else out
 
 
-def scan(limit=None, enrich_top=12):
+def scan(limit=None, enrich_top=30):
     syms = _universe(limit)
     fast = []
     for s in syms:
@@ -122,7 +122,19 @@ def push(text, res):
             print(f"[email failed: {e}]", file=sys.stderr)
     if "--ntfy" in flags and os.getenv("NTFY_TOPIC", "").strip():
         try:
-            head = "\n".join(l for l in text.splitlines() if l and not l.startswith("#") and not l.startswith("_") and not l.startswith("   "))
+            # Build the push from the setup data so the ACTIONABLE numbers (order/stop/
+            # target/R:R) reach the phone — the old text-filter dropped the indented
+            # level lines, leaving only "SYMBOL — BUY" with no prices.
+            if res["buys"]:
+                rows = []
+                for r in res["buys"]:
+                    lv = r.get("levels") or {}
+                    order = lv.get("trigger") or lv.get("entry")
+                    rows.append(f"{r['symbol']} {r['side']} ({lv.get('setup','')}): "
+                                f"order ₹{order} · SL ₹{lv.get('stop')} · T1 ₹{lv.get('target1')} · R:R {lv.get('rr')}")
+                head = "\n".join(rows)
+            else:
+                head = "No clean swing setup today — sit out."
             urllib.request.urlopen(urllib.request.Request(
                 "https://ntfy.sh/" + os.getenv("NTFY_TOPIC").strip(), data=head.encode("utf-8"),
                 headers={"Title": subj, "Tags": "chart_with_upwards_trend"}), timeout=10)
