@@ -62,6 +62,10 @@ def _grade(e):
     entry, stop, t1, trig = e["entry"], e["stop"], e["t1"], e.get("trigger")
     if None in (entry, stop, t1):
         return None
+    # Issued today (or no completed bar after it yet) — PENDING, not a graded trade.
+    # (Otherwise a conditional order gets mislabeled "never triggered" the day it's made.)
+    if not rows:
+        return {"result": "PENDING", "R": 0.0, "days": 0, "on": e["date"]}
     risk = abs(entry - stop)
     if risk <= 0:
         return None
@@ -104,15 +108,18 @@ def audit():
             graded.append({**e, **g})
     closed = [g for g in graded if g["result"] in ("STOP", "T1")]
     openp = [g for g in graded if g["result"] == "OPEN"]
-    return graded, closed, openp
+    pending = [g for g in graded if g["result"] == "PENDING"]
+    return graded, closed, openp, pending
 
 
 def report():
-    graded, closed, openp = audit()
+    graded, closed, openp, pending = audit()
     out = [f"# 📒 Swing audit — {datetime.now(TZ):%d %b %Y}"]
     if not graded:
         out.append("No swing calls issued yet — nothing to grade. (Scan has been SIT-OUT.)")
         return "\n".join(out)
+    if pending:
+        out.append(f"_{len(pending)} call(s) issued today — pending (awaiting trigger/outcome), not yet graded._")
     if closed:
         wins = [c for c in closed if c["R"] > 0]
         tot = sum(c["R"] for c in closed)
