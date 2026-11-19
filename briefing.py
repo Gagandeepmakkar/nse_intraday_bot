@@ -70,16 +70,44 @@ def fetch_daily(symbol):
         return None
 
 
-def fetch_news(company, limit=6):
-    """Recent headlines from Google News RSS (free, no key). Returns list of titles."""
+NEWS_MAX_AGE_DAYS = int(os.getenv("NEWS_MAX_AGE_DAYS", "7"))
+
+
+def _parse_pubdate(s):
+    """Google News RSS pubDate (RFC-822, e.g. 'Wed, 19 Nov 2026 06:30:00 GMT') -> datetime, or None."""
+    if not s:
+        return None
     try:
-        q = urllib.parse.quote(f"{company} NSE share")
+        from email.utils import parsedate_to_datetime
+        return parsedate_to_datetime(s)
+    except Exception:
+        return None
+
+
+def fetch_news(company, limit=6, max_age_days=None):
+    """RECENT headlines only — Google News RSS (free, no key), time-bounded with `when:Nd`
+    AND hard-filtered by pubDate so stale items (e.g. a weeks-old IPO headline) can never
+    attach to today's signal. Returns list of titles, newest first."""
+    max_age = max_age_days or NEWS_MAX_AGE_DAYS
+    try:
+        from datetime import datetime, timezone, timedelta
+        q = urllib.parse.quote(f"{company} NSE share when:{max_age}d")
         url = f"https://news.google.com/rss/search?q={q}&hl=en-IN&gl=IN&ceid=IN:en"
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=12) as r:
             root = ET.fromstring(r.read())
-        titles = [it.findtext("title", "").strip() for it in root.iter("item")]
-        return [t for t in titles if t][:limit]
+        cutoff = datetime.now(timezone.utc) - timedelta(days=max_age)
+        items = []
+        for it in root.iter("item"):
+            title = it.findtext("title", "").strip()
+            if not title:
+                continue
+            dt = _parse_pubdate(it.findtext("pubDate", ""))
+            if dt is None or dt < cutoff:   # drop undated or stale — latest only
+                continue
+            items.append((dt, title))
+        items.sort(key=lambda x: x[0], reverse=True)   # newest first
+        return [t for _, t in items][:limit]
     except Exception as e:
         print(f"  (news fetch failed: {e})", file=sys.stderr)
         return []
