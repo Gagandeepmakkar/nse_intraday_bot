@@ -16,3 +16,5 @@ swing_watch.json
 swing_ledger.jsonl
 swing_watch.json.tmp
 swing_watch.json.tmp
+.delivery.json
+.sectors.json

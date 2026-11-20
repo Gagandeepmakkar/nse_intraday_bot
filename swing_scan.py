@@ -104,7 +104,10 @@ def _line(r):
     lv = r.get("levels") or {}
     ev = r.get("evidence") or {}
     rs = ev.get("rel_strength_vs_nifty_pct")
-    why = f"trend {ev.get('trend','?')}, RS {rs:+.1f}% vs NIFTY, RSI {ev.get('rsi','?')}" if rs is not None else ""
+    deliv = ev.get("delivery_pct")
+    sect = ev.get("sector_trend")
+    extra = (f" · deliv {deliv:.0f}%" if deliv is not None else "") + (f" · sector {sect}" if sect else "")
+    why = f"trend {ev.get('trend','?')}, RS {rs:+.1f}% vs NIFTY, RSI {ev.get('rsi','?')}{extra}" if rs is not None else ""
     oi = ev.get("oi_walls")
     oistr = f" · OI S ₹{oi['put']:.0f}/R ₹{oi['call']:.0f}" if oi and oi.get("put") and oi.get("call") else ""
     eta = lv.get("eta_days")

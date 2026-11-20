@@ -21,6 +21,8 @@ import pandas as pd
 import requests
 
 import oi
+import delivery
+import sector as sectormod
 
 TZ = ZoneInfo("Asia/Kolkata")
 V3 = "https://api.upstox.com/v3"
@@ -151,11 +153,21 @@ def score(symbol, catalyst=None, fast=False):
     nret, regime = _nifty_ret(20)
     rs = round(stk_ret - nret, 2) if nret is not None else None
     walls = None
+    deliv = None     # delivery % (real accumulation) — bhavcopy, free
+    sect = None      # sector index trend (UP/DOWN/FLAT/None) — best-effort
     if not fast:
         try:
             walls = oi.walls(sym)
         except Exception:
             walls = None
+        try:
+            deliv = delivery.deliv_pct(sym)
+        except Exception:
+            deliv = None
+        try:
+            sect = sectormod.sector_trend(sym)
+        except Exception:
+            sect = None
 
     levels = _swing_levels(df, price)
     res = [l for l in levels if l["price"] >= price + 0.4 * atr]
@@ -200,9 +212,23 @@ def score(symbol, catalyst=None, fast=False):
         w = {1: 15, 2: 10, 3: 4}.get(tier, 4)
         return w if d == ("up" if long else "down") else -w if d == ("down" if long else "up") else 0
 
+    def deliv_pts(long):
+        if deliv is None:
+            return 0
+        if long:  # high delivery = buyers accumulating = conviction; low = churn
+            return 8 if deliv >= 65 else 5 if deliv >= 55 else 0 if deliv >= 40 else -4
+        return 6 if deliv < 40 else 0
+
+    def sector_pts(long):
+        want = "UP" if long else "DOWN"
+        if sect is None or sect == "FLAT":
+            return 0
+        return 8 if sect == want else -6
+
     def build(long):
         pts = {"trend": trend_pts(long), "rel_strength": rs_pts(long), "momentum": rsi_pts(long),
-               "regime": regime_pts(long), "volume": vol_pts(), "oi": oi_pts(long), "catalyst": cat_pts(long)}
+               "regime": regime_pts(long), "volume": vol_pts(), "oi": oi_pts(long),
+               "catalyst": cat_pts(long), "delivery": deliv_pts(long), "sector": sector_pts(long)}
         return max(0, min(100, sum(pts.values()))), pts
 
     long_s, long_pts = build(True)
@@ -263,8 +289,12 @@ def score(symbol, catalyst=None, fast=False):
         levels = {"entry": best["entry"], "trigger": best["trigger"], "stop": best["stop"],
                   "target1": best["t1"], "target2": best["t2"], "rr": best["rr"],
                   "t1_label": best["t1_label"], "eta_days": eta, "setup": best["setup"]}
+    # Regime gate: don't fight the tape — no fresh LONGs in a DOWN market, no SHORTs in UP.
+    regime_block = (long and regime == "DOWN") or (not long and regime == "UP")
     if thin:
         note = "too thin to trade (turnover < ₹2cr)"
+    elif regime_block:
+        note = f"skip {side}: against the {regime} market regime (don't fight the tape)"
     elif best and sc >= 60:
         action = "BUY" if long else "SELL"
         trg = f" · trigger ₹{best['trigger']}" if best["trigger"] else " · enter now"
@@ -283,6 +313,7 @@ def score(symbol, catalyst=None, fast=False):
             "trend": "UP" if price > ema20 > ema50 else "DOWN" if price < ema20 < ema50 else "MIXED",
             "rsi": round(rsi, 1), "atr": round(atr, 2), "rvol": round(rvol, 2),
             "rel_strength_vs_nifty_pct": rs, "nifty_regime": regime,
+            "delivery_pct": deliv, "sector_trend": sect,
             "turnover_cr": round(turnover_cr, 1), "thin": thin,
             "nearest_support": nearest_sup, "nearest_resistance": nearest_res,
             "oi_walls": {"put": walls.get("put_wall"), "call": walls.get("call_wall"),
