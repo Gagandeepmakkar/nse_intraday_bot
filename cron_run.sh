@@ -18,15 +18,18 @@ LOG="cron.log"
   python track.py || true          # grade yesterday's picks
   # Crypto is 24/7 — check BTC/ETH Donchian trend every slot; alert only on trend change.
   python crypto_monitor.py --ntfy --email || echo "crypto_monitor exited non-zero"
-  # Pre-open WATCHLIST (morning, ~09:10): top 5 hot stocks for today with pre-open gaps.
-  if [ "$HM" -ge 908 ] && [ "$HM" -lt 911 ]; then
+  # Pre-open WATCHLIST (morning, ~09:10): top hot stocks with pre-open gaps.
+  if [ "$HM" -ge 908 ] && [ "$HM" -lt 912 ]; then
     python watchlist.py --morning --ntfy --email || echo "watchlist morning failed"
-    # SWING scan (the one brain): ranks the Nifty 500 and mails the best BUY/SELL
-    # setups with entry/stop/target, or an honest SIT-OUT on extended days.
+  fi
+  # SWING scan (the one brain): ranks the Nifty 500 and mails the best BUY/SELL setups,
+  # or an honest SIT-OUT. WIDE window [908,930) so a late scheduler slot still runs it;
+  # swing_scan is idempotent (skips if today's plan already written), so no double email.
+  if [ "$HM" -ge 908 ] && [ "$HM" -lt 930 ]; then
     python swing_scan.py --ntfy --email || echo "swing_scan failed"
   fi
   # Pre-market briefing (~09:12): deep read on your BRIEF_SYMBOLS.
-  if [ "$HM" -ge 911 ] && [ "$HM" -lt 930 ]; then
+  if [ "$HM" -ge 912 ] && [ "$HM" -lt 930 ]; then
     python briefing.py --ntfy --email || echo "briefing.py exited non-zero"
   fi
   python bot.py || echo "bot.py exited non-zero"

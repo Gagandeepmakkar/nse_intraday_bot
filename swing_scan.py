@@ -204,11 +204,26 @@ def _trading_day_ok():
     return datetime.now(TZ).weekday() < 5
 
 
+def _already_ran_today():
+    """True if today's scan already produced the plan — so a wide morning window that
+    overlaps two scheduler slots runs the scan (and emails) only ONCE per day."""
+    import json
+    try:
+        d = json.load(open("swing_watch.json"))
+        return d.get("date") == datetime.now(TZ).strftime("%Y-%m-%d")
+    except Exception:
+        return False
+
+
 def main():
     limit = None
+    force = "--force" in sys.argv
     for a in sys.argv[1:]:
         if a.startswith("--limit="):
             limit = int(a.split("=", 1)[1])
+    if not force and _trading_day_ok() and _already_ran_today():
+        print("swing_scan already ran today — skipping (use --force to re-run).")
+        return
     res = scan(limit=limit)
     text = report(res)
     print(text)
