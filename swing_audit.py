@@ -100,6 +100,47 @@ def _grade(e):
     return {"result": "OPEN", "R": unreal, "days": len(rows) - start, "on": str(df["date"].iloc[-1].date())}
 
 
+def _shadow(e):
+    """Pullback-vs-momentum study for one call. Grades TWO entries over the real price path:
+      momentum = buy at the scan price the day it was issued (participate immediately)
+      pullback = buy at the trigger only if price actually dipped there (the current logic)
+    Returns (mom_pct, pb_pct) in %, or None if not gradeable yet. Lets us learn, over weeks,
+    whether buying the dip or buying the signal makes more money — then re-rank on evidence."""
+    ik = oi.instrument_key(e["symbol"])
+    scan = e.get("scan_px")
+    if not ik or not scan:
+        return None
+    issue = datetime.strptime(e["date"], "%Y-%m-%d").date()
+    df = swing._daily(ik, days=max((datetime.now(TZ).date() - issue).days + 6, 30))
+    if df.empty:
+        return None
+    rows = list(df[df["date"].dt.date > issue].iterrows())
+    if not rows:
+        return None  # too early — no completed bar after issue
+    long = e["side"] == "LONG"
+    stop, t1, trig = e["stop"], e["t1"], e.get("trigger") or e["entry"]
+    sgn = 1 if long else -1
+
+    def grade(entry_px):
+        for _, d in rows:
+            hi, lo = d["high"], d["low"]
+            if (long and lo <= stop) or (not long and hi >= stop):
+                return (stop / entry_px - 1) * 100 * sgn
+            if (long and hi >= t1) or (not long and lo <= t1):
+                return (t1 / entry_px - 1) * 100 * sgn
+        return (float(df["close"].iloc[-1]) / entry_px - 1) * 100 * sgn
+
+    mom = grade(scan)
+    breakout = (e.get("setup") or "").lower().startswith(("breakout", "breakdown"))
+    def filled(d):
+        hi, lo = d["high"], d["low"]
+        if breakout:
+            return (hi >= trig) if long else (lo <= trig)
+        return (lo <= trig) if long else (hi >= trig)
+    pb = grade(trig) if any(filled(d) for _, d in rows) else 0.0  # 0 = never filled, no trade
+    return mom, pb
+
+
 def audit():
     graded = []
     for e in sorted(_load(), key=lambda x: x["date"]):
@@ -149,6 +190,19 @@ def report():
     nofill = [g for g in graded if g["result"] == "NOFILL"]
     if nofill:
         out.append(f"- {len(nofill)} conditional order(s) never triggered (price didn't reach the level) — not trades.")
+    out.append("")
+    # Shadow study: momentum (buy at signal) vs pullback (buy the dip) — learn which wins.
+    shadows = [s for s in (_shadow(e) for e in sorted(_load(), key=lambda x: x["date"])) if s]
+    if shadows:
+        mom = sum(m for m, _ in shadows)
+        pb = sum(p for _, p in shadows)
+        verdict = "momentum ahead" if mom > pb + 5 else "pullback ahead" if pb > mom + 5 else "roughly even"
+        out.append(f"**🔬 Entry study ({len(shadows)} gradeable): buy-at-signal {mom:+.1f}% total · "
+                   f"buy-the-dip {pb:+.1f}% total → {verdict}**")
+        out.append("_(When this has 20+ gradeable calls, it decides whether to lean momentum or "
+                   "pullback — on evidence, not a hunch. Too few yet to act on.)_")
+    else:
+        out.append("_🔬 Entry study (momentum vs pullback): accumulating — not enough closed bars yet._")
     out.append("")
     if closed and len(closed) < 20:
         out.append(f"_Only {len(closed)} closed — too few to conclude. Real money only after "

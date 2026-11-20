@@ -183,7 +183,8 @@ def _persist(res):
                                     "entry": lv.get("entry"), "trigger": lv.get("trigger"),
                                     "stop": lv.get("stop"), "t1": lv.get("target1"),
                                     "t2": lv.get("target2"), "setup": lv.get("setup"),
-                                    "eta": lv.get("eta_days")}) + "\n")
+                                    "eta": lv.get("eta_days"),
+                                    "scan_px": r.get("price")}) + "\n")   # price when issued — for the pullback-vs-momentum shadow study
     except Exception:
         pass
 
