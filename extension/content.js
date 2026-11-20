@@ -71,12 +71,12 @@
       S.url = d.url; if (d.auth) S.auth = d.auth;
       if (sym !== S.symbol) {
         if (S.phase !== 0) closeTrade(floatingR(), "SWITCH");
-        S.symbol = sym; S.price = 0; S.news = {}; S.oi = null; S.swing = null; reset(); fetchNews(); fetchOI(); fetchSwing();
+        S.symbol = sym; S.price = 0; S.shares = 0; S.news = {}; S.oi = null; S.swing = null; reset(); fetchNews(); fetchOI(); fetchSwing();
       }
     } else {
       // a chart we can't identify as an NSE equity — stop signalling on it
       if (S.phase !== 0) closeTrade(floatingR(), "SWITCH");
-      S.unsupported = true; S.symbol = ""; S.url = ""; S.price = 0; S.oi = null; S.swing = null; reset();
+      S.unsupported = true; S.symbol = ""; S.url = ""; S.price = 0; S.news = {}; S.oi = null; S.swing = null; reset();
     }
   });
   function fetchNews() {
@@ -96,7 +96,7 @@
   function fetchSwing() {
     if (!S.symbol) return;
     const sym = S.symbol;
-    try { chrome.runtime.sendMessage({ __swing: true, symbol: sym }, (r) => { if (sym === S.symbol) { S.swing = (r && r.action) ? r : null; renderSwing(); } }); } catch (e) {}
+    try { chrome.runtime.sendMessage({ __swing: true, symbol: sym }, (r) => { if (sym === S.symbol) { S.swing = (r && r.action) ? r : { empty: true }; renderSwing(); } }); } catch (e) {}
   }
   function renderSwing() {
     const el = $("vim-swing"); if (!el) return;
@@ -307,8 +307,17 @@
   function drawLevels() {
     if (!S.series) return;
     S.lines.forEach((l) => S.series.removePriceLine(l)); S.lines = [];
-    if (S.phase === 0) return;
     const add = (price, color, title) => { if (price) S.lines.push(S.series.createPriceLine({ price, color, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title })); };
+    // SWING_ONLY: draw the daily swing call's levels (phase is always 0, so the old
+    // S.entry/S.stop path never ran — the chart showed no overlay lines).
+    if (SWING_ONLY) {
+      const lv = S.swing && S.swing.levels;
+      if (!lv) return;
+      add(lv.trigger != null ? lv.trigger : lv.entry, "#4cc2ff", lv.trigger != null ? "Order" : "Entry");
+      add(lv.stop, "#ff5b6b", "SL"); add(lv.target1, "#e0b341", "T1"); add(lv.target2, "#3fcf6b", "T2");
+      return;
+    }
+    if (S.phase === 0) return;
     add(S.entry, "#4cc2ff", "Entry"); add(S.stop, "#ff5b6b", "SL"); add(S.t1, "#e0b341", "T1"); add(S.t2, "#3fcf6b", "T2");
   }
 
@@ -472,7 +481,7 @@
       act.textContent = S.phase === 1 ? "HOLDING LONG" : S.phase === -1 ? "HOLDING SHORT" : d.action === "BUY" ? "BUY NOW" : d.action === "SELL" ? "SELL NOW" : d.action === "HOLD" ? "HOLD" : "WAIT";
       act.className = S.phase === 1 ? "LONG" : S.phase === -1 ? "SHORT" : (d.action === "BUY" ? "BUY" : d.action === "SELL" ? "SELL" : "WAIT");
     }
-    const sv = (SWING_ONLY && S.swing && S.swing.score != null) ? S.swing.score : (d.score != null ? d.score : 0);
+    const sv = SWING_ONLY ? (S.swing && S.swing.score != null ? S.swing.score : 0) : (d.score != null ? d.score : 0);
     $("vim-scoretext").textContent = sv;
     const fill = $("vim-scorefill"); fill.style.width = Math.min(100, sv) + "%";
     fill.className = sv >= (SWING_ONLY ? 60 : (CFG.minScore || 60)) ? "hi" : sv >= 40 ? "mid" : "";

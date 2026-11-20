@@ -40,6 +40,36 @@ def _universe(limit=None):
     return out[:limit] if limit else out
 
 
+def _material_filings():
+    """{SYMBOL: blob} for stocks with a material NSE filing today (keyword-filtered, no AI
+    yet — AI is spent only on the shortlisted names). Empty on any error."""
+    out = {}
+    try:
+        import watchlist
+        from datasource import NSESource
+        for sym, rows in (NSESource().announcements(days=1) or {}).items():
+            blob = " ".join((r.get("desc", "") + " " + r.get("text", "")) for r in rows)
+            if watchlist.MATERIAL_KW.search(blob):
+                out[sym] = blob
+    except Exception:
+        pass
+    return out
+
+
+def _catalyst_for(sym, blob):
+    """AI-classified catalyst dict for swing.score() + display, or None."""
+    try:
+        import watchlist
+        a = watchlist.ai_catalyst(sym, blob)
+        if a and a.get("material"):
+            tier = int(a.get("tier", 3)) if str(a.get("tier", 3)).isdigit() else 3
+            return {"direction": str(a.get("direction", "")).lower(), "tier": tier,
+                    "type": a.get("type", ""), "reason": a.get("reason", "")}
+    except Exception:
+        pass
+    return None
+
+
 def scan(limit=None, enrich_top=30):
     syms = _universe(limit)
     fast = []
@@ -51,13 +81,19 @@ def scan(limit=None, enrich_top=30):
         if r.get("score") is not None:
             fast.append(r)
     fast.sort(key=lambda r: r.get("score", 0), reverse=True)
-    # Re-score the most promising names with full detail (live price + OI walls).
+    # Fresh catalysts: one announcements pull; AI only on shortlisted names that filed.
+    material = _material_filings()
     top = []
     for r in fast[:enrich_top]:
+        sym = r["symbol"]
+        cat = _catalyst_for(sym, material[sym]) if sym in material else None
         try:
-            top.append(swing.score(r["symbol"]))
+            sc = swing.score(sym, catalyst=cat)
         except Exception:
-            top.append(r)
+            sc = r
+        if cat:
+            sc["catalyst"] = cat   # carry the reason into the mail/panel
+        top.append(sc)
     top.sort(key=lambda r: r.get("score", 0), reverse=True)
     buys = [r for r in top if r.get("action") in ("BUY", "SELL")]
     watch = [r for r in top if r.get("action") == "WAIT"][:4]
@@ -76,9 +112,14 @@ def _line(r):
     setup = lv.get("setup", "")
     trig = lv.get("trigger")
     enter = f"on {setup} — place order ₹{trig}" if trig else f"NOW ₹{lv.get('entry')}"
-    return (f"{r['symbol']} — {r['action']} {r['side']}  (score {r['score']}, {setup})\n"
+    sc = r.get("score", 0)
+    cat = r.get("catalyst")
+    # Conviction = score, boosted a tier when a fresh real catalyst backs the setup.
+    conv = "HIGH" if (sc >= 75 or (cat and cat.get("tier") == 1 and sc >= 68)) else "GOOD" if sc >= 65 else "OK"
+    catline = f"\n   📣 catalyst: {cat['type']} ({cat['direction']}) — {cat['reason']} [Tier {cat['tier']}]" if cat else ""
+    return (f"{r['symbol']} — {r['action']} {r['side']}  (conviction {conv} · score {sc} · {setup})\n"
             f"   enter {enter} · stop ₹{lv.get('stop')} · T1 ₹{lv.get('target1')} · T2 ₹{lv.get('target2')} · R:R {lv.get('rr')}{etastr}\n"
-            f"   why: {why}{oistr}")
+            f"   why: {why}{oistr}{catline}")
 
 
 def report(res):
